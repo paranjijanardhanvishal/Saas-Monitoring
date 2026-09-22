@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import DashboardLayout from './layouts/DashboardLayout';
 
 // Pages
+import Landing from './pages/Landing';
 import Overview from './pages/Overview';
 import LiveActivity from './pages/LiveActivity';
 import Alerts from './pages/Alerts';
@@ -18,7 +19,9 @@ function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<DashboardLayout />}>
+        <Route path="/" element={<Landing />} />
+        
+        <Route path="/dashboard" element={<DashboardLayout />}>
           <Route index element={<Overview />} />
           <Route path="activity" element={<LiveActivity />} />
           <Route path="alerts" element={<Alerts />} />

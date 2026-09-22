@@ -1,7 +1,14 @@
 import axios from 'axios';
 
+const getApiUrl = () => {
+  if (import.meta.env.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL;
+  }
+  return '/api';
+};
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000/api',
+  baseURL: getApiUrl(),
 });
 
 export const getEvents = async (skip = 0, limit = 50) => {
@@ -51,7 +58,8 @@ export const updateIncidentStatus = async (incidentId, status) => {
 
 export const getHealth = async () => {
   // Use the health endpoint from root or /health depending on backend structure
-  const response = await axios.get((import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000').replace('/api', '') + '/health');
+  const baseUrl = getApiUrl().replace('/api', '');
+  const response = await axios.get(baseUrl + '/health');
   return response.data;
 };
 
