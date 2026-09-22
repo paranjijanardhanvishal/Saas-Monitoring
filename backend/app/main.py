@@ -20,10 +20,12 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+origins = [origin.strip() for origin in settings.FRONTEND_URL.split(",")]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
+    allow_origins=origins,
+    allow_credentials=True if origins != ["*"] else False,
     allow_methods=["*"],
     allow_headers=["*"],
 )

@@ -5,6 +5,7 @@ class Settings(BaseSettings):
     API_V1_STR: str = "/api"
     MONGODB_URI: str = "mongodb://localhost:27017"
     MONGO_DB_NAME: str = "saas_monitor"
+    FRONTEND_URL: str = "*"
 
     model_config = SettingsConfigDict(env_file=("../.env", ".env"), env_file_encoding="utf-8")
 
