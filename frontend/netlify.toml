@@ -1,7 +1,47 @@
+# Netlify build configuration for the SOC console.
+#
+# API topology: choose one.
+#
+# A. Same-origin proxy (recommended when relying on HttpOnly cookies).
+#    Uncomment the /api and /health redirects below, replace the host, and do
+#    NOT set VITE_API_URL. The SPA will call /api on the Netlify origin.
+#    On the backend set:
+#      FRONTEND_URL=https://<your-site>.netlify.app
+#      COOKIE_SECURE=true
+#      COOKIE_SAMESITE=lax
+#
+# B. Cross-site API.
+#    Keep the redirects commented and set the build environment variable
+#      VITE_API_URL=https://<backend-host>/api
+#    On the backend set:
+#      FRONTEND_URL=https://<your-site>.netlify.app
+#      COOKIE_SECURE=true
+#      COOKIE_SAMESITE=none
+#
+# Never put INGESTION_API_KEY, JWT_SECRET_KEY, database credentials or agent
+# tokens in VITE_* variables: every VITE_* value is shipped to the browser.
+
 [build]
   command = "npm run build"
   publish = "dist"
 
+[build.environment]
+  NODE_VERSION = "22"
+
+# --- Option A: same-origin API proxy ---------------------------------------
+[[redirects]]
+  from = "/api/*"
+  to = "https://saas-monitoring.onrender.com/api/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/health"
+  to = "https://saas-monitoring.onrender.com/health"
+  status = 200
+  force = true
+
+# SPA fallback. Keep this last so client-side routes resolve to index.html.
 [[redirects]]
   from = "/*"
   to = "/index.html"

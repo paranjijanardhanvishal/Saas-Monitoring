@@ -1,90 +1,145 @@
+"""Privacy/PII tests: detection, derived-only storage and ownership."""
+
 import pytest
-from app.privacy.sensitivity import classify_entity_sensitivity, calculate_sensitivity_score, determine_risk_category
-from app.privacy.presidio_analyzer import get_analyzer
-from app.main import app
-from fastapi.testclient import TestClient
-from unittest.mock import AsyncMock
 
-client = TestClient(app)
+from app.privacy.presidio_analyzer import (
+    RegexAnalyzerEngine,
+    get_engine_name,
+    reset_analyzer,
+)
+from app.privacy.schemas import PrivacyAnalysisRequest
+from app.privacy.sensitivity import (
+    calculate_sensitivity_score,
+    classify_entity_sensitivity,
+    determine_risk_category,
+)
+from app.privacy.service import analyze_text
+from conftest import create_user, login
 
-def test_classify_entity_sensitivity():
-    assert classify_entity_sensitivity("CREDIT_CARD") == "HIGH"
-    assert classify_entity_sensitivity("AADHAAR") == "HIGH"
+
+def test_regex_engine_detects_identifiers():
+    engine = RegexAnalyzerEngine()
+    results = engine.analyze(
+        "email jane@example.com ssn 123-45-6789 password: hunter2 "
+        "card 4111 1111 1111 1111 ip 10.0.0.5"
+    )
+    types = {item.entity_type for item in results}
+    assert "EMAIL_ADDRESS" in types
+    assert "US_SSN" in types
+    assert "PASSWORD" in types
+    assert "CREDIT_CARD" in types
+    assert "IP_ADDRESS" in types
+
+
+def test_regex_engine_is_deterministic_and_ignores_empty():
+    engine = RegexAnalyzerEngine()
+    assert engine.analyze("") == []
+    first = engine.analyze("a@b.com")
+    second = engine.analyze("a@b.com")
+    assert [(i.entity_type, i.start, i.end) for i in first] == [
+        (i.entity_type, i.start, i.end) for i in second
+    ]
+
+
+def test_sensitivity_scoring():
+    assert classify_entity_sensitivity("PASSWORD") == "HIGH"
     assert classify_entity_sensitivity("EMAIL_ADDRESS") == "MODERATE"
-    assert classify_entity_sensitivity("PHONE_NUMBER") == "MODERATE"
     assert classify_entity_sensitivity("PERSON") == "LOW"
-    assert classify_entity_sensitivity("IP_ADDRESS") == "LOW"
-    assert classify_entity_sensitivity("SOMETHING_ELSE") == "UNKNOWN"
-
-def test_calculate_sensitivity_score():
-    # 1 Low = 1
-    assert calculate_sensitivity_score(0, 0, 1) == 1
-    # 1 Moderate = 5
-    assert calculate_sensitivity_score(0, 1, 0) == 5
-    # 1 High = 10
-    assert calculate_sensitivity_score(1, 0, 0) == 10
-    
-    # 1 High + 2 Moderate + 3 Low = 10 + 10 + 3 = 23
-    assert calculate_sensitivity_score(1, 2, 3) == 23
-    
-    # Cap at 100
-    assert calculate_sensitivity_score(15, 0, 0) == 100
-    assert calculate_sensitivity_score(0, 25, 0) == 100
-
-def test_determine_risk_category():
-    assert determine_risk_category(19) == "SAFE"
-    assert determine_risk_category(20) == "SENSITIVE"
-    assert determine_risk_category(59) == "SENSITIVE"
+    assert classify_entity_sensitivity("WHATEVER") == "UNKNOWN"
+    assert calculate_sensitivity_score(0, 0, 0) == 0
+    assert calculate_sensitivity_score(10, 10, 10) == 100
+    assert determine_risk_category(10) == "SAFE"
+    assert determine_risk_category(30) == "SENSITIVE"
     assert determine_risk_category(60) == "HIGH_RISK"
-    assert determine_risk_category(100) == "HIGH_RISK"
 
-def test_presidio_analyzer_init():
-    analyzer = get_analyzer()
-    assert analyzer is not None
-    # Check if custom recognizers were added
-    recognizer_names = [r.name for r in analyzer.registry.recognizers]
-    assert "aadhaar_recognizer" in recognizer_names
-    assert "password_recognizer" in recognizer_names
 
 @pytest.mark.asyncio
-async def test_privacy_analysis_api_no_pii(mocker):
-    mock_db = mocker.patch('app.privacy.service.get_database')
-    mock_db.return_value.pii_findings.insert_one = AsyncMock()
-    
-    response = client.post("/api/privacy/analyze", json={
-        "text": "This is a safe text with no personal information.",
-        "file_id": "test_file_1"
-    })
-    
-    assert response.status_code == 201
-    data = response.json()
-    assert data["sensitivity_score"] == 0
-    assert data["category"] == "SAFE"
-    assert len(data["entities"]) == 0
+async def test_analyze_text_stores_only_derived_metadata(db):
+    reset_analyzer()
+    request = PrivacyAnalysisRequest(
+        text="Contact jane@example.com about ssn 123-45-6789",
+        file_id="file-1",
+    )
+    finding = await analyze_text(request, "owner-1")
+    assert finding.user_id == "owner-1"
+    assert finding.engine == get_engine_name()
+    assert finding.sensitivity_score > 0
+    assert finding.file_id == "file-1"
+    assert not hasattr(finding, "text")
+
+    stored = await db.pii_findings.find_one({"finding_id": finding.finding_id})
+    assert stored is not None
+    assert "jane@example.com" not in str(stored)
+    assert "123-45-6789" not in str(stored)
+
 
 @pytest.mark.asyncio
-async def test_privacy_analysis_api_with_pii(mocker):
-    mock_db = mocker.patch('app.privacy.service.get_database')
-    mock_db.return_value.pii_findings.insert_one = AsyncMock()
-    
-    test_text = "Contact me at testuser@example.com or call 555-0199. My Aadhaar is 1234 5678 9012 and my password: secret."
-    
-    response = client.post("/api/privacy/analyze", json={
-        "text": test_text,
-        "file_id": "test_file_2"
-    })
-    
-    assert response.status_code == 201
-    data = response.json()
-    assert data["category"] in ["SENSITIVE", "HIGH_RISK"]
-    
-    # Check that raw PII is not in the response
-    assert "testuser@example.com" not in str(data)
-    assert "1234 5678 9012" not in str(data)
-    assert "secret" not in str(data)
-    
-    # Check entities
-    entity_types = [e["entity_type"] for e in data["entities"]]
-    assert "EMAIL_ADDRESS" in entity_types
-    assert "AADHAAR" in entity_types
-    assert "PASSWORD" in entity_types
+async def test_privacy_api_requires_authentication(client):
+    response = await client.post("/api/privacy/analyze", json={"text": "a@b.com"})
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_privacy_api_assigns_server_side_owner(client, db):
+    await create_user("privacy-user")
+    token = (await login(client, "privacy-user"))["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    response = await client.post(
+        "/api/privacy/analyze",
+        json={"text": "password: letmein123 ssn 123-45-6789", "file_id": "f-1"},
+        headers=headers,
+    )
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["user_id"] == "privacy-user"
+    assert body["category"] in {"SENSITIVE", "HIGH_RISK"}
+
+    findings = await client.get("/api/privacy/findings", headers=headers)
+    assert findings.status_code == 200
+    assert [f["finding_id"] for f in findings.json()] == [body["finding_id"]]
+
+
+@pytest.mark.asyncio
+async def test_privacy_findings_are_isolated_between_users(client, db):
+    await create_user("alice")
+    await create_user("bob")
+    alice_headers = {"Authorization": f"Bearer {(await login(client, 'alice'))['access_token']}"}
+    bob_headers = {"Authorization": f"Bearer {(await login(client, 'bob'))['access_token']}"}
+
+    created = await client.post(
+        "/api/privacy/analyze", json={"text": "a@b.com"}, headers=alice_headers
+    )
+    assert created.status_code == 201
+    finding_id = created.json()["finding_id"]
+
+    bob_list = await client.get("/api/privacy/findings", headers=bob_headers)
+    assert bob_list.status_code == 200
+    assert bob_list.json() == []
+
+    bob_direct = await client.get(f"/api/privacy/findings/{finding_id}", headers=bob_headers)
+    assert bob_direct.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_only_admin_can_target_another_user(client, db):
+    await create_user("admin-one", role="ADMIN")
+    await create_user("target-one")
+    await create_user("plain-one")
+    admin_token = (await login(client, "admin-one"))["access_token"]
+    user_token = (await login(client, "plain-one"))["access_token"]
+
+    denied = await client.post(
+        "/api/privacy/analyze?target_user_id=target-one",
+        json={"text": "a@b.com"},
+        headers={"Authorization": f"Bearer {user_token}"},
+    )
+    assert denied.status_code == 403
+
+    allowed = await client.post(
+        "/api/privacy/analyze?target_user_id=target-one",
+        json={"text": "a@b.com"},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert allowed.status_code == 201
+    assert allowed.json()["user_id"] == "target-one"

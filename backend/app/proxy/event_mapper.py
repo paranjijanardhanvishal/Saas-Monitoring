@@ -3,6 +3,8 @@ from typing import Dict, Any, Optional
 from app.models.event import EventModel, ActionEnum
 from urllib.parse import urlparse
 import logging
+import hashlib
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +44,8 @@ class EventMapper:
                 return ActionEnum.DOWNLOAD
             return ActionEnum.ACCESS
         elif method == "POST":
+            if "permissions" in path_query or "acl" in path_query or "share" in path_query:
+                return ActionEnum.PERMISSION_CHANGE
             if "upload" in path_query:
                 return ActionEnum.UPLOAD
             return ActionEnum.MODIFY
@@ -55,11 +59,32 @@ class EventMapper:
         return ActionEnum.ACCESS
 
     @classmethod
+    def extract_resource_info(cls, path: str, saas: str) -> Optional[str]:
+        """Extract resource ID from path if available."""
+        if saas == "google_drive":
+            # Typical Drive API path: /drive/v3/files/1A2B3C...
+            match = re.search(r'/files/([a-zA-Z0-9_-]+)', path)
+            if match:
+                return match.group(1)
+        return None
+
+    @classmethod
+    def get_identity_from_headers(cls, headers: Dict[str, str]) -> Optional[str]:
+        """Hash the authorization token to use as a session fallback identity."""
+        for k, v in headers.items():
+            if k.lower() == 'authorization' and v.lower().startswith('bearer '):
+                token = v[7:].strip()
+                # Hash the token so we don't expose it
+                return "session_" + hashlib.sha256(token.encode()).hexdigest()[:12]
+        return None
+
+    @classmethod
     def create_event_from_request(
         cls, 
         method: str, 
         url: str, 
         headers: Dict[str, str],
+        client_ip: str = "unknown",
         status_code: int = 0,
         content_type: str = "",
         request_size: int = 0,
@@ -72,28 +97,36 @@ class EventMapper:
         
         saas = cls.identify_saas(host)
         action = cls.map_action(method, path, parsed_url.query, saas)
+        resource_id = cls.extract_resource_info(path, saas)
         
-        # Basic parsing for user identity - relies on external injection if available, otherwise unknown
-        # Since we don't inspect auth tokens, user identification is limited at the proxy layer
-        user_id = "unknown"
-        
+        session_id = cls.get_identity_from_headers(headers)
+        # The proxy cannot assert a trusted employee identity. It reports an
+        # opaque session fingerprint; user attribution requires a separate
+        # verified mapping and is never accepted from the network payload.
         metadata = {
             "http_method": method,
             "host": host,
             "path": path,
-            "query": parsed_url.query, # could sanitize query params
+            "query": parsed_url.query,
             "status_code": status_code,
             "content_type": content_type,
             "request_size": request_size,
             "response_size": response_size,
-            "headers": cls.sanitize_headers(headers)
+            "headers": cls.sanitize_headers(headers),
+            "identity_verified": False,
+        }
+        
+        device_info = {
+            "ip_address": client_ip
         }
         
         return EventModel(
             event_id=str(uuid.uuid4()),
-            user_id=user_id,
-            file_id=None, # File ID extraction requires deeper SaaS-specific parsing
+            user_id=None,
+            session_id=session_id,
+            saas_app=saas,
             action=action,
-            source=saas,
+            resource_id=resource_id,
+            device_info=device_info,
             metadata=metadata
         )

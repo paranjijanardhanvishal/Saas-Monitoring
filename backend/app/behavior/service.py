@@ -3,9 +3,14 @@ from app.behavior.baseline import get_user_profile, save_user_profile, save_anom
 from app.behavior.activity_rate import calculate_activity_rate
 from app.behavior.ewma import update_all_ewma_windows, initialize_ewma_windows
 from app.behavior.anomaly_detector import detect_anomaly
+from app.behavior.role_analytics import assess_role_activity
 from datetime import datetime, timezone
 
-async def analyze_behavior(request: BehaviorAnalysisRequest) -> AnomalyFindingModel:
+async def analyze_behavior(
+    request: BehaviorAnalysisRequest,
+    business_role: str = "GENERAL",
+    event: dict | None = None,
+) -> AnomalyFindingModel:
     user_id = request.user_id
     current_time = request.timestamp
     
@@ -45,6 +50,20 @@ async def analyze_behavior(request: BehaviorAnalysisRequest) -> AnomalyFindingMo
         current_rate=current_rate,
         ewma_dict=profile.ewma # compare against previous EWMA baseline before updating
     )
+
+    role_assessment = assess_role_activity(business_role, event or {})
+    finding.business_role = role_assessment["business_role"]
+    finding.role_mismatch = role_assessment["role_mismatch"]
+    finding.role_anomaly_score = role_assessment["role_anomaly_score"]
+    finding.observed_resource_categories = role_assessment["observed_resource_categories"]
+    finding.role_reason = role_assessment["role_reason"]
+    if finding.role_mismatch:
+        activity_reason = finding.reason
+        finding.is_anomaly = True
+        finding.anomaly_type = (
+            "COMPOUND" if finding.anomaly_type == "ACTIVITY_SPIKE" else "ROLE_ACCESS_MISMATCH"
+        )
+        finding.reason = f"{activity_reason} {finding.role_reason}"
     
     # 5. Save updated baseline
     profile.last_activity_timestamp = current_time

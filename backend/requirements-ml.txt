@@ -1,0 +1,7 @@
+# Optional ML dependencies for real Presidio PII detection.
+# Without these the backend automatically uses the regex engine
+# (PII_ENGINE=auto). The active engine is visible in /api/system/health.
+presidio-analyzer>=2.2.355
+spacy>=3.7
+# Install the English model after this file:
+#   python -m spacy download en_core_web_sm

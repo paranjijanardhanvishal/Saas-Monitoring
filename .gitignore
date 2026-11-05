@@ -1,7 +1,14 @@
 venv/
+.venv/
+.verify-venv/
 __pycache__/
 *.pyc
 .env
+.env.*
+!.env.example
 credentials/credentials.json
 credentials/token.json
 .pytest_cache/
+node_modules/
+dist/
+*.log

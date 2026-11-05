@@ -1,25 +1,48 @@
+"""Database configuration and index tests. No production database is touched."""
+
+import certifi
 import pytest
-from app.database.mongodb import MongoDB, connect_to_mongo, close_mongo_connection, get_database, db_client
 
-@pytest.mark.asyncio
-async def test_connect_to_mongo(mocker):
-    mock_client = mocker.patch('app.database.mongodb.AsyncIOMotorClient')
-    mocker.patch('app.database.mongodb.settings.MONGODB_URI', 'mongodb://test:27017')
-    
-    await connect_to_mongo()
-    import certifi
-    mock_client.assert_called_once_with(
-        'mongodb://test:27017', 
-        tlsCAFile=certifi.where(), 
-        tlsAllowInvalidCertificates=True
+from app.database import mongodb
+
+
+def test_local_uri_does_not_enable_tls(monkeypatch):
+    monkeypatch.setattr(mongodb.settings, "MONGODB_URI", "mongodb://localhost:27017")
+    assert mongodb._tls_options() == {}
+
+
+def test_remote_uri_validates_certificates(monkeypatch):
+    monkeypatch.setattr(
+        mongodb.settings,
+        "MONGODB_URI",
+        "mongodb+srv://user:pass@cluster.example.mongodb.net",
     )
-    assert db_client.client is not None
-    assert get_database() is not None
+    options = mongodb._tls_options()
+    assert options == {"tlsCAFile": certifi.where()}
+    assert "tlsAllowInvalidCertificates" not in options
+
+
+def test_test_database_guard(monkeypatch):
+    monkeypatch.setattr(mongodb.settings, "MONGO_DB_NAME", "saas_monitor_test")
+    assert mongodb.is_test_database() is True
+    monkeypatch.setattr(mongodb.settings, "MONGO_DB_NAME", "saas_monitor")
+    assert mongodb.is_test_database() is False
+
 
 @pytest.mark.asyncio
-async def test_close_mongo_connection(mocker):
-    mock_client_instance = mocker.MagicMock()
-    db_client.client = mock_client_instance
-    
-    await close_mongo_connection()
-    mock_client_instance.close.assert_called_once()
+async def test_drop_test_database_refuses_non_test_database(monkeypatch):
+    monkeypatch.setattr(mongodb.settings, "MONGO_DB_NAME", "saas_monitor")
+    with pytest.raises(RuntimeError):
+        await mongodb.drop_test_database()
+
+
+@pytest.mark.asyncio
+async def test_ensure_indexes_is_idempotent(db):
+    await mongodb.ensure_indexes()
+    await mongodb.ensure_indexes()
+    indexes = await db.events.index_information()
+    names = set(indexes)
+    assert any("event_id" in name for name in names)
+    alert_indexes = await db.alerts.index_information()
+    unique = [info for info in alert_indexes.values() if info.get("unique")]
+    assert unique, "alerts.dedupe_key must be a unique index"

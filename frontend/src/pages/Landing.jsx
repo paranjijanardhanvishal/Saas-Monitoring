@@ -1,99 +1,177 @@
 import React from 'react';
-import { useNavigate } from 'react-router-dom';
-import { ShieldCheck, Target, Activity, AlertTriangle, Users, FileLock2, Search } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import {
+  Activity,
+  AlertTriangle,
+  ArrowRight,
+  BrainCircuit,
+  FileSearch,
+  Gavel,
+  Server,
+  ShieldCheck,
+  Users,
+} from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 
-const Landing = () => {
-  const navigate = useNavigate();
+const CAPABILITIES = [
+  {
+    icon: Activity,
+    title: 'Live activity',
+    body: 'Consent-gated endpoint and SaaS proxy events, correlated with user, device and session context.',
+  },
+  {
+    icon: FileSearch,
+    title: 'Sensitive data findings',
+    body: 'PII detection with Presidio when installed and a labelled regex fallback. Only derived findings are stored.',
+  },
+  {
+    icon: BrainCircuit,
+    title: 'Behaviour analytics',
+    body: 'EWMA baselines per user with deviation findings kept separate from the user directory.',
+  },
+  {
+    icon: AlertTriangle,
+    title: 'Alerts and incidents',
+    body: 'Administrator triage, status transitions, notes, evidence history and incident creation from alerts.',
+  },
+  {
+    icon: Users,
+    title: 'Risk and investigation',
+    body: 'Explainable four-signal risk assessments plus a correlated per-user and per-event investigation view.',
+  },
+  {
+    icon: Gavel,
+    title: 'Auditable enforcement',
+    body: 'Administrator-confirmed restriction and device revocation with reason capture and rollback.',
+  },
+];
+
+const SCOPE = [
+  'Windows process, foreground-application, session, usage and file-event telemetry from an enrolled device agent.',
+  'Optional cloud file metadata and PII findings supplied through the authenticated API.',
+  'Administrator-only investigation, enforcement, user management and system-health visibility.',
+  'Server-side consent enforcement: withdrawal stops ingestion and revokes the user’s devices.',
+];
+
+const LIMITATIONS = [
+  'The endpoint agent does not capture file contents, keystrokes, screenshots, browser history or clipboard data.',
+  'Global file access and upload visibility is not claimed; the agent reports the events its collectors support.',
+  'Offline analysis inspects file names only, never file contents.',
+  'Windows failed-login monitoring may be unavailable without elevated access to the Security log; the collector then disables itself and reports the reason.',
+  'SaaS proxy ingestion requires a configured ingestion key; events are stored without a verified identity when the proxy cannot attest one.',
+];
+
+export default function Landing() {
+  const { user } = useAuth();
 
   return (
-    <div className="min-h-screen bg-slate-50 font-sans text-slate-800 flex flex-col relative overflow-hidden">
-      {/* Background Gradient & Grid */}
-      <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-[0.03] z-0"></div>
-      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[800px] h-[800px] bg-blue-400/20 rounded-full blur-[120px] z-0 pointer-events-none"></div>
+    <div className="min-h-screen overflow-hidden bg-[#0b0f19] text-slate-200">
+      <div className="pointer-events-none absolute inset-0">
+        <div className="absolute -top-48 left-1/2 h-[560px] w-[760px] -translate-x-1/2 rounded-full bg-blue-600/10 blur-[130px]" />
+        <div className="absolute bottom-0 right-0 h-[360px] w-[360px] rounded-full bg-emerald-500/5 blur-[110px]" />
+      </div>
 
-      {/* Header */}
-      <header className="relative z-10 flex justify-between items-center p-6 lg:px-12">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 bg-blue-50 rounded-lg flex items-center justify-center border border-blue-100">
-            <ShieldCheck className="text-blue-600" size={20} />
-          </div>
-          <span className="font-bold text-lg text-slate-900 tracking-tight">SaaS Security Monitor</span>
+      <header className="relative z-10 mx-auto flex max-w-6xl items-center justify-between px-6 py-6">
+        <div className="flex items-center gap-3">
+          <span className="flex h-9 w-9 items-center justify-center rounded-xl border border-blue-500/30 bg-blue-500/10 text-blue-400">
+            <ShieldCheck size={20} />
+          </span>
+          <span className="text-sm font-bold tracking-tight text-white">SaaS Security Monitor</span>
         </div>
-        <a href="https://github.com" target="_blank" rel="noreferrer" className="text-sm font-medium text-slate-500 hover:text-slate-800 flex items-center gap-1">
-          github.com ↗
-        </a>
+        <Link
+          to={user ? '/dashboard' : '/login'}
+          className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-slate-600 hover:text-white"
+        >
+          {user ? 'Open console' : 'Sign in'}
+          <ArrowRight size={15} />
+        </Link>
       </header>
 
-      {/* Hero Section */}
-      <main className="relative z-10 flex-1 flex flex-col items-center justify-center px-4 -mt-16">
-        
-        <div className="mb-6 flex flex-col items-center">
-          <div className="w-16 h-16 bg-blue-50 border border-blue-100 rounded-2xl flex items-center justify-center mb-6 shadow-sm">
-            <ShieldCheck className="text-blue-600" size={32} />
+      <main className="relative z-10 mx-auto max-w-6xl px-6 pb-20">
+        <section className="pt-14 pb-16 sm:pt-20">
+          <div className="inline-flex items-center gap-2 rounded-full border border-slate-800 bg-slate-900/60 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-blue-400">
+            Security operations console
           </div>
-          <div className="bg-blue-100 text-blue-700 text-[11px] font-bold px-3 py-1 rounded-full uppercase tracking-widest mb-6">
-            Live Interactive Demo
+          <h1 className="mt-6 max-w-3xl text-4xl font-extrabold leading-tight tracking-tight text-white sm:text-5xl">
+            SaaS API monitoring for data leakage and access anomalies
+          </h1>
+          <p className="mt-5 max-w-2xl text-base leading-relaxed text-slate-400">
+            A capstone SOC platform that correlates consent-gated Windows endpoint telemetry with SaaS
+            access events, sensitive-data findings and behavioural baselines to produce explainable risk
+            assessments and auditable response actions.
+          </p>
+
+          <div className="mt-8 flex flex-wrap items-center gap-3">
+            <Link
+              to={user ? '/dashboard' : '/login'}
+              className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-blue-500"
+            >
+              {user ? 'Open the SOC console' : 'Sign in to the SOC console'}
+              <ArrowRight size={16} />
+            </Link>
+            <span className="text-xs text-slate-500">
+              Accounts are provisioned by an administrator. There is no public sign-up.
+            </span>
           </div>
-        </div>
+        </section>
 
-        <h1 className="text-5xl md:text-6xl font-extrabold text-center tracking-tight text-slate-900 mb-4 max-w-4xl leading-tight">
-          Enterprise SOC Platform <br className="hidden md:block"/>
-          <span className="text-blue-600">powered by AI</span>
-        </h1>
-        
-        <p className="text-slate-500 text-center max-w-2xl text-lg mb-10">
-          Full-stack SaaS security operations — API Monitoring, UEBA, Privacy Posture, Incident Response, and Enforcement in one platform.
-        </p>
-
-        <button 
-          onClick={() => navigate('/dashboard')}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3.5 rounded-lg font-semibold shadow-lg shadow-blue-600/30 transition-all hover:-translate-y-0.5 flex items-center gap-2"
-        >
-          <Search size={18} />
-          Launch Live Demo
-        </button>
-        <p className="text-slate-400 text-xs mt-4">No sign-up required · Live data sandbox</p>
-
-        {/* Top Stat Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-16 max-w-4xl w-full">
-          {[
-            { value: '50+', label: 'Detection Engines' },
-            { value: '14', label: 'SOAR Playbooks' },
-            { value: '128', label: 'Monitored SaaS APIs' },
-            { value: 'Real-time', label: 'Log Ingestion' },
-          ].map((stat, i) => (
-            <div key={i} className="bg-white border border-slate-200 rounded-xl p-5 text-center shadow-sm">
-              <h3 className="text-2xl font-bold text-blue-600 mb-1">{stat.value}</h3>
-              <p className="text-[11px] font-medium text-slate-400 uppercase tracking-wider">{stat.label}</p>
-            </div>
-          ))}
-        </div>
-
-        {/* Feature Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4 max-w-4xl w-full">
-          {[
-            { title: 'AI Threat Detection', desc: 'ML-powered anomaly engine', icon: Target },
-            { title: 'SIEM / Alert Triage', desc: 'Real-time alert correlation', icon: AlertTriangle },
-            { title: 'SOAR Playbooks', desc: 'Automated response actions', icon: ShieldCheck },
-            { title: 'UEBA & Insider Threat', desc: 'Behavioral baselining (EWMA)', icon: Users },
-            { title: 'Privacy Posture', desc: 'Contextual PII scanning', icon: FileLock2 },
-            { title: 'Live Activity Feed', desc: 'Deep traffic inspection', icon: Activity },
-          ].map((feat, i) => (
-            <div key={i} className="bg-white border border-slate-200 rounded-xl p-5 flex items-start gap-4 shadow-sm hover:border-blue-200 transition-colors cursor-default">
-              <div className="w-10 h-10 bg-blue-50 text-blue-600 rounded-lg flex items-center justify-center shrink-0 border border-blue-100">
-                <feat.icon size={20} />
+        <section aria-labelledby="capabilities-heading">
+          <h2 id="capabilities-heading" className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">
+            What the console does
+          </h2>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {CAPABILITIES.map((capability) => (
+              <div
+                key={capability.title}
+                className="rounded-xl border border-slate-800 bg-[#0d1320] p-5"
+              >
+                <span className="flex h-10 w-10 items-center justify-center rounded-lg border border-blue-500/20 bg-blue-500/10 text-blue-400">
+                  <capability.icon size={19} />
+                </span>
+                <h3 className="mt-4 text-sm font-bold text-white">{capability.title}</h3>
+                <p className="mt-1.5 text-xs leading-relaxed text-slate-400">{capability.body}</p>
               </div>
-              <div>
-                <h4 className="font-bold text-slate-800 text-sm mb-0.5">{feat.title}</h4>
-                <p className="text-xs text-slate-500">{feat.desc}</p>
-              </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        </section>
 
+        <section className="mt-10 grid gap-4 lg:grid-cols-2" aria-label="Scope and limitations">
+          <div className="rounded-xl border border-slate-800 bg-[#0d1320] p-6">
+            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.18em] text-emerald-400">
+              <Server size={15} />
+              Monitored scope
+            </div>
+            <ul className="mt-4 space-y-3 text-xs leading-relaxed text-slate-400">
+              {SCOPE.map((item) => (
+                <li key={item} className="flex items-start gap-2.5">
+                  <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
+                  {item}
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <div className="rounded-xl border border-amber-900/40 bg-amber-950/10 p-6">
+            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.18em] text-amber-300">
+              <AlertTriangle size={15} />
+              Documented limitations
+            </div>
+            <ul className="mt-4 space-y-3 text-xs leading-relaxed text-amber-100/70">
+              {LIMITATIONS.map((item) => (
+                <li key={item} className="flex items-start gap-2.5">
+                  <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
+                  {item}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </section>
+
+        <footer className="mt-12 flex flex-col gap-2 border-t border-slate-800 pt-6 text-[11px] text-slate-600 sm:flex-row sm:items-center sm:justify-between">
+          <p>Monitoring is consent-gated and administrator access is logged.</p>
+          <p>Capstone demonstration build. No production SLA or compliance certification is claimed.</p>
+        </footer>
       </main>
     </div>
   );
-};
-
-export default Landing;
+}

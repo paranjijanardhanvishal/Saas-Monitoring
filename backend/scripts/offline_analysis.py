@@ -1,14 +1,19 @@
+"""Offline metadata analysis pipeline.
+
+Important limitation: this script analyses *file names* only. It does not
+download or inspect document contents, so its output must not be presented as
+a content data-loss-prevention scan.
+"""
+
 import asyncio
 import logging
-from motor.motor_asyncio import AsyncIOMotorClient
 import os
-from dotenv import load_dotenv
-
-# Set up paths so we can import app modules
 import sys
-import os
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(os.path.join(ROOT, "backend"))
+
+from app.database.mongodb import close_mongo_connection, connect_to_mongo, get_database
 from app.metadata.vector import local_vdb
 from app.privacy.schemas import PrivacyAnalysisRequest
 from app.privacy.service import analyze_text
@@ -16,68 +21,71 @@ from app.privacy.service import analyze_text
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
 async def run_offline_analysis():
-    """
-    Offline Cloud Content Analysis Pipeline
-    As defined in Section V-B of the paper.
-    Periodically reviews files stored in the cloud (synced by sync_drive.py),
-    performs semantic vectorization, and pre-computes privacy baselines.
-    """
-    load_dotenv()
-    mongo_uri = os.getenv("MONGODB_URI")
-    db_name = os.getenv("MONGO_DB_NAME", "saas_monitor")
-    
-    if not mongo_uri:
-        logger.error("MONGODB_URI not set. Offline analysis aborted.")
+    await connect_to_mongo()
+    db = get_database()
+    if db is None:
+        logger.error("Database connection failed; offline analysis aborted.")
         return
-        
-    import certifi
-    client = AsyncIOMotorClient(
-        mongo_uri, 
-        tlsCAFile=certifi.where(),
-        tlsAllowInvalidCertificates=True
-    )
-    db = client[db_name]
-    
-    logger.info("Starting Offline Cloud Content Analysis...")
-    
+
     try:
-        # Fetch all synced files
-        cursor = db.files.find({})
-        files = await cursor.to_list(length=None)
-        
+        files = await db.files.find({}).to_list(length=None)
         if not files:
-            logger.info("No files found in database. Run sync_drive.py first.")
+            logger.info("No synced file metadata found. Run scripts/sync_drive.py first.")
             return
-            
-        for f in files:
-            file_id = f["file_id"]
-            file_name = f.get("name", "")
-            
-            # 1. Semantic Metadata Vectorization (Section III-C / V-B)
-            local_vdb.insert(file_id, file_name)
-            logger.info(f"Vectorized metadata for file: {file_name}")
-            
-            # 2. Offline Privacy Pre-computation
+
+        processed = 0
+        failed = 0
+        for item in files:
+            file_id = item["file_id"]
+            name = item.get("name", "")
+            owner_email = item.get("owner_email")
+
+            # The owner email links metadata to a local account when one exists.
+            owner = (
+                await db.users.find_one({"email": str(owner_email).lower()})
+                if owner_email
+                else None
+            )
+            if not owner:
+                logger.warning("Skipping %s: no local account for owner", file_id)
+                continue
+
+            local_vdb.insert(file_id, name)
+
             try:
-                req = PrivacyAnalysisRequest(text=file_name, event_id=f"offline_{file_id}")
-                finding = await analyze_text(req)
-                logger.info(f"Offline privacy baseline established for {file_name}: {finding.category} (Score: {finding.sensitivity_score})")
-                
+                finding = await analyze_text(
+                    PrivacyAnalysisRequest(text=name, file_id=file_id), owner["user_id"]
+                )
                 await db.offline_baselines.update_one(
                     {"file_id": file_id},
-                    {"$set": {"privacy_score": finding.sensitivity_score, "category": finding.category}},
-                    upsert=True
+                    {
+                        "$set": {
+                            "privacy_score": finding.sensitivity_score,
+                            "category": finding.category,
+                            "engine": finding.engine,
+                            "analyzed_field": "file_name_only",
+                            "finding_id": finding.finding_id,
+                        }
+                    },
+                    upsert=True,
                 )
-            except Exception as e:
-                logger.error(f"Failed offline analysis for {file_name}: {e}")
-                
-        logger.info("Offline Cloud Content Analysis Complete.")
-        
-    except Exception as e:
-        logger.error(f"MongoDB Connection Error: {e}")
-        logger.error("Your local network or VPN is blocking the SSL handshake to MongoDB Atlas.")
-        logger.error("Please disconnect your VPN or try a different network to run the offline analysis.")
-    
+                processed += 1
+                logger.info(
+                    "Metadata baseline for %s: %s (%s)",
+                    file_id,
+                    finding.category,
+                    finding.sensitivity_score,
+                )
+            except Exception:
+                failed += 1
+                logger.exception("Offline metadata analysis failed for %s", file_id)
+
+        logger.info("Offline metadata analysis complete: %s processed, %s failed", processed, failed)
+    finally:
+        await close_mongo_connection()
+
+
 if __name__ == "__main__":
     asyncio.run(run_offline_analysis())

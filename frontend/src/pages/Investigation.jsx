@@ -1,247 +1,596 @@
-import React, { useState } from 'react';
-import { Search, AlertTriangle, ShieldAlert, Activity, User, FileText, CheckCircle, Clock } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
-  getEvents,
-  getAlerts,
-  getIncidents,
-  getPrivacyFindings,
-  getBehaviorAnomalies,
-  getEnforcementResponses
-} from '../api';
+  Activity,
+  BrainCircuit,
+  FileText,
+  Laptop,
+  Loader2,
+  RefreshCw,
+  Search,
+  ShieldAlert,
+  Target,
+  Users,
+} from 'lucide-react';
+import { errorMessage, investigateEvent, investigateUser, searchUsers } from '../api';
+import {
+  Badge,
+  btnPrimary,
+  btnSecondary,
+  consentTone,
+  Drawer,
+  EmptyState,
+  ErrorState,
+  formatDateTime,
+  formatNumber,
+  formatScore,
+  inputClass,
+  KeyValue,
+  LoadingState,
+  PageHeader,
+  Panel,
+  SearchInput,
+  severityTone,
+  StatCard,
+  statusTone,
+  timeAgo,
+} from '../components/ui';
 
-const Investigation = () => {
+function countOf(items) {
+  return Array.isArray(items) ? items.length : 0;
+}
+
+export default function Investigation() {
+  const [searchParams] = useSearchParams();
   const [query, setQuery] = useState('');
-  const [timeline, setTimeline] = useState([]);
+  const [results, setResults] = useState([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState('');
+  const [searched, setSearched] = useState(false);
+
+  const [investigatedId, setInvestigatedId] = useState('');
+  const [investigation, setInvestigation] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [hasSearched, setHasSearched] = useState(false);
 
-  const handleSearch = async (e) => {
-    e.preventDefault();
-    if (!query.trim()) return;
-    
+  const [eventOpen, setEventOpen] = useState(false);
+  const [eventContext, setEventContext] = useState(null);
+  const [eventLoading, setEventLoading] = useState(false);
+  const [eventError, setEventError] = useState('');
+  const [eventId, setEventId] = useState('');
+
+  const runSearch = useCallback(async (value) => {
+    const term = (value || '').trim();
+    if (term.length < 2) {
+      setSearchError('Enter at least 2 characters to search the user directory.');
+      setResults([]);
+      return;
+    }
+    setSearchLoading(true);
+    setSearchError('');
+    setSearched(true);
+    try {
+      const found = await searchUsers(term, 25);
+      setResults(Array.isArray(found) ? found : []);
+    } catch (err) {
+      setSearchError(errorMessage(err, 'Could not search the user directory.'));
+    } finally {
+      setSearchLoading(false);
+    }
+  }, []);
+
+  const runInvestigation = useCallback(async (userId) => {
+    if (!userId) return;
+    setInvestigatedId(userId);
     setLoading(true);
     setError('');
-    setHasSearched(true);
-    setTimeline([]);
-
+    setInvestigation(null);
     try {
-      // Fetch data from multiple sources
-      const limit = 500;
-      const [events, alerts, incidents, privacy, behavior, enforcements] = await Promise.all([
-        getEvents(0, limit).catch(() => []),
-        getAlerts(0, limit).catch(() => []),
-        getIncidents(0, limit).catch(() => []),
-        getPrivacyFindings(0, limit).catch(() => []),
-        getBehaviorAnomalies(0, limit).catch(() => []),
-        getEnforcementResponses(0, limit).catch(() => [])
-      ]);
-
-      const q = query.toLowerCase();
-      const match = (item) => JSON.stringify(item).toLowerCase().includes(q);
-
-      const combined = [];
-
-      // Process Events
-      events.filter(match).forEach(item => {
-        combined.push({
-          id: item.event_id,
-          timestamp: new Date(item.timestamp),
-          type: 'Event',
-          title: `${item.action} on ${item.source}`,
-          user: item.user_id,
-          resource: item.file_id,
-          severity: 'LOW',
-          icon: <Activity className="w-5 h-5 text-blue-400" />,
-          data: item
-        });
-      });
-
-      // Process Alerts
-      alerts.filter(match).forEach(item => {
-        combined.push({
-          id: item.id || item._id,
-          timestamp: new Date(item.timestamp),
-          type: 'Alert',
-          title: item.title,
-          user: item.user_id,
-          resource: item.resource_id,
-          severity: item.severity,
-          icon: <AlertTriangle className="w-5 h-5 text-amber-400" />,
-          data: item
-        });
-      });
-
-      // Process Incidents
-      incidents.filter(match).forEach(item => {
-        combined.push({
-          id: item.id || item._id,
-          timestamp: new Date(item.created_time),
-          type: 'Incident',
-          title: item.title,
-          user: item.user,
-          resource: item.resource,
-          severity: item.severity,
-          icon: <ShieldAlert className="w-5 h-5 text-rose-500" />,
-          data: item
-        });
-      });
-
-      // Process Privacy Findings
-      privacy.filter(match).forEach(item => {
-        combined.push({
-          id: item.id || item._id,
-          timestamp: new Date(item.timestamp || Date.now()), // fallback
-          type: 'Privacy Finding',
-          title: `PII Detected: ${item.sensitivity_category || 'Unknown'}`,
-          user: item.user_id,
-          resource: item.file_id,
-          severity: item.score >= 60 ? 'HIGH' : item.score >= 20 ? 'MEDIUM' : 'LOW',
-          icon: <FileText className="w-5 h-5 text-purple-400" />,
-          data: item
-        });
-      });
-
-      // Process Behavior Anomalies
-      behavior.filter(match).forEach(item => {
-        combined.push({
-          id: item.id || item._id,
-          timestamp: new Date(item.timestamp || Date.now()),
-          type: 'Behavior Anomaly',
-          title: `Anomaly Detected for User`,
-          user: item.user_id,
-          resource: 'N/A',
-          severity: item.risk_level || 'MEDIUM',
-          icon: <User className="w-5 h-5 text-orange-400" />,
-          data: item
-        });
-      });
-
-      // Process Enforcement Responses
-      enforcements.filter(match).forEach(item => {
-        combined.push({
-          id: item.id || item._id,
-          timestamp: new Date(item.timestamp || Date.now()),
-          type: 'Enforcement Action',
-          title: item.action_taken || 'Action Taken',
-          user: item.user_id,
-          resource: 'N/A',
-          severity: 'CRITICAL',
-          icon: <CheckCircle className="w-5 h-5 text-emerald-400" />,
-          data: item
-        });
-      });
-
-      // Sort chronological descending
-      combined.sort((a, b) => b.timestamp - a.timestamp);
-      
-      setTimeline(combined);
+      const data = await investigateUser(userId, 50);
+      setInvestigation(data);
     } catch (err) {
-      console.error(err);
-      setError('An error occurred during investigation search.');
+      setError(errorMessage(err, 'Could not build the investigation view.'));
     } finally {
       setLoading(false);
     }
+  }, []);
+
+  const openEventContext = useCallback(async (id) => {
+    if (!id) return;
+    setEventId(id);
+    setEventOpen(true);
+    setEventContext(null);
+    setEventError('');
+    setEventLoading(true);
+    try {
+      const data = await investigateEvent(id);
+      setEventContext(data);
+    } catch (err) {
+      setEventError(errorMessage(err, 'Could not load event context.'));
+    } finally {
+      setEventLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const userParam = searchParams.get('user');
+    const eventParam = searchParams.get('event');
+    if (userParam) runInvestigation(userParam);
+    if (eventParam) openEventContext(eventParam);
+    // Only bootstrap from the URL on first mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleSearchSubmit = () => {
+    runSearch(query);
   };
 
-  const getSeverityBadge = (severity) => {
-    switch (severity?.toUpperCase()) {
-      case 'CRITICAL': return 'bg-rose-500/10 text-rose-400 border-rose-500/20';
-      case 'HIGH': return 'bg-orange-500/10 text-orange-400 border-orange-500/20';
-      case 'MEDIUM': return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
-      default: return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
-    }
-  };
+  const user = investigation?.user;
+  const devices = investigation?.devices || [];
+  const events = investigation?.events || [];
+  const alerts = investigation?.alerts || [];
+  const incidents = investigation?.incidents || [];
+  const risks = investigation?.risk_assessments || [];
+  const anomalies = investigation?.anomalies || [];
+  const findings = investigation?.pii_findings || [];
+
+  const counts = useMemo(
+    () => ({
+      events: countOf(events),
+      alerts: countOf(alerts),
+      incidents: countOf(incidents),
+      risks: countOf(risks),
+      anomalies: countOf(anomalies.filter((item) => item.is_anomaly)),
+      findings: countOf(findings),
+    }),
+    [events, alerts, incidents, risks, anomalies, findings],
+  );
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold text-white mb-2">Investigation Center</h1>
-          <p className="text-gray-400">Search across users, files, alerts, and incidents to trace the security timeline.</p>
-        </div>
-      </div>
+    <div className="space-y-6">
+      <PageHeader
+        eyebrow="Investigation"
+        title="Correlated user and event investigation"
+        subtitle="Administrator-only correlation of a user's account, enrolled devices, activity, alerts, incidents, risk assessments, behavioural findings and PII metadata. Every lookup stays inside the live database."
+        actions={
+          investigatedId ? (
+            <button type="button" className={btnSecondary} onClick={() => runInvestigation(investigatedId)} disabled={loading}>
+              <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+              Refresh
+            </button>
+          ) : null
+        }
+      />
 
-      <div className="bg-[#121212] border border-[#262626] rounded-xl p-6">
-        <form onSubmit={handleSearch} className="flex gap-4">
-          <div className="relative flex-1">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-            <input 
-              type="text" 
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Enter User ID, File ID, or Alert ID..." 
-              className="w-full bg-[#1e1e1e] border border-[#333] text-white rounded-lg pl-12 pr-4 py-3 focus:outline-none focus:border-emerald-500 transition-colors"
-            />
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <Panel title="User directory search" subtitle="Search by user ID, email or display name">
+          <div className="flex gap-2">
+            <SearchInput value={query} onChange={setQuery} onSubmit={handleSearchSubmit} placeholder="At least 2 characters" className="flex-1" />
+            <button type="button" className={btnPrimary} onClick={handleSearchSubmit} disabled={searchLoading}>
+              {searchLoading ? <Loader2 size={15} className="animate-spin" /> : <Search size={15} />}
+              Search
+            </button>
           </div>
-          <button 
-            type="submit" 
-            disabled={loading || !query.trim()}
-            className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium px-8 py-3 rounded-lg transition-colors"
-          >
-            {loading ? 'Searching...' : 'Investigate'}
-          </button>
-        </form>
-      </div>
+          {searchError ? <p className="mt-2 text-xs text-red-300">{searchError}</p> : null}
 
-      {error && (
-        <div className="bg-rose-500/10 border border-rose-500/20 text-rose-400 p-4 rounded-lg">
-          {error}
-        </div>
-      )}
-
-      {hasSearched && !loading && timeline.length === 0 && (
-        <div className="bg-[#121212] border border-[#262626] rounded-xl p-12 text-center">
-          <Clock className="w-12 h-12 text-gray-500 mx-auto mb-4" />
-          <h3 className="text-xl font-medium text-white mb-2">No related events found</h3>
-          <p className="text-gray-400">Try searching for a different user, file, or incident ID.</p>
-        </div>
-      )}
-
-      {timeline.length > 0 && (
-        <div className="bg-[#121212] border border-[#262626] rounded-xl p-6">
-          <h2 className="text-xl font-semibold text-white mb-6">Investigation Timeline: {query}</h2>
-          
-          <div className="relative border-l border-[#333] ml-4 space-y-8">
-            {timeline.map((item, index) => (
-              <div key={`${item.id}-${index}`} className="relative pl-8">
-                <div className="absolute -left-4 top-1 bg-[#121212] border border-[#333] rounded-full p-1.5">
-                  {item.icon}
-                </div>
-                
-                <div className="bg-[#1e1e1e] border border-[#333] rounded-lg p-5 hover:border-[#444] transition-colors">
-                  <div className="flex justify-between items-start mb-3">
-                    <div>
-                      <div className="flex items-center gap-3 mb-1">
-                        <span className="text-emerald-400 font-medium text-sm">{item.type}</span>
-                        <span className="text-gray-500 text-sm">•</span>
-                        <span className="text-gray-400 text-sm">{item.timestamp.toLocaleString()}</span>
-                      </div>
-                      <h3 className="text-lg font-medium text-white">{item.title}</h3>
+          <div className="mt-3">
+            {searchLoading ? (
+              <LoadingState label="Searching users…" />
+            ) : results.length === 0 ? (
+              <p className="rounded-lg border border-slate-800 bg-slate-900/40 p-3 text-xs text-slate-500">
+                {searched ? 'No users matched that search.' : 'Search to select a user and correlate their records.'}
+              </p>
+            ) : (
+              <div className="max-h-72 space-y-1.5 overflow-y-auto pr-1">
+                {results.map((item) => (
+                  <button
+                    key={item.user_id}
+                    type="button"
+                    onClick={() => runInvestigation(item.user_id)}
+                    className="flex w-full items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-900/40 px-3 py-2 text-left transition hover:border-slate-700 hover:bg-slate-900"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-xs font-semibold text-slate-200">{item.display_name || item.user_id}</p>
+                      <p className="truncate text-[10px] text-slate-500">{item.user_id}{item.email ? ` · ${item.email}` : ''}</p>
                     </div>
-                    <span className={`px-2.5 py-1 text-xs font-semibold rounded-md border ${getSeverityBadge(item.severity)}`}>
-                      {item.severity}
-                    </span>
-                  </div>
-                  
-                  <div className="grid grid-cols-2 gap-4 mt-4 p-4 bg-[#121212] rounded-md border border-[#262626]">
-                    <div>
-                      <span className="text-gray-500 text-xs uppercase tracking-wider block mb-1">User</span>
-                      <span className="text-gray-200 text-sm">{item.user || 'System'}</span>
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      <Badge tone={consentTone(item.monitoring_enabled)}>{item.monitoring_enabled.replace('_', ' ')}</Badge>
+                      <Badge tone="neutral">{formatNumber(item.active_devices)} devices</Badge>
+                      <Badge tone={item.open_alerts > 0 ? 'red' : 'green'}>{formatNumber(item.open_alerts)} alerts</Badge>
                     </div>
-                    <div>
-                      <span className="text-gray-500 text-xs uppercase tracking-wider block mb-1">Resource</span>
-                      <span className="text-gray-200 text-sm truncate block" title={item.resource}>{item.resource || 'N/A'}</span>
-                    </div>
-                  </div>
-                </div>
+                  </button>
+                ))}
               </div>
-            ))}
+            )}
           </div>
-        </div>
+        </Panel>
+
+        <Panel title="Event lookup" subtitle="Open an event and its correlated risk, alert, anomaly and PII records">
+          <div className="flex gap-2">
+            <input
+              value={eventId}
+              onChange={(event) => setEventId(event.target.value)}
+              onKeyDown={(event) => { if (event.key === 'Enter') openEventContext(eventId.trim()); }}
+              placeholder="Paste an event ID"
+              className={inputClass}
+            />
+            <button type="button" className={btnSecondary} onClick={() => openEventContext(eventId.trim())} disabled={eventLoading || eventId.trim().length === 0}>
+              {eventLoading ? <Loader2 size={15} className="animate-spin" /> : <ShieldAlert size={15} />}
+              Open
+            </button>
+          </div>
+          <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+            Event lookup is authorised by the owning user or administrator role. Raw event metadata is
+            shown only when the event was persisted by the ingestion pipeline.
+          </p>
+          {eventError && !eventOpen ? <p className="mt-2 text-xs text-red-300">{eventError}</p> : null}
+        </Panel>
+      </div>
+
+      {loading ? (
+        <LoadingState label="Correlating account, devices and security records…" />
+      ) : error ? (
+        <ErrorState message={error} onRetry={() => investigatedId && runInvestigation(investigatedId)} />
+      ) : investigation ? (
+        <>
+          <Panel
+            title={user?.display_name || user?.user_id || 'User'}
+            subtitle={user ? `${user.user_id}${user.email ? ` · ${user.email}` : ''}` : ''}
+            actions={
+              <div className="flex flex-wrap gap-2">
+                <Badge tone={user?.role === 'ADMIN' ? 'blue' : 'neutral'}>{user?.role}</Badge>
+                <Badge tone={consentTone(user?.monitoring_enabled)}>{(user?.monitoring_enabled || '').replace('_', ' ')}</Badge>
+                <Badge tone={statusTone(user?.enforcement_status)}>{user?.enforcement_status}</Badge>
+              </div>
+            }
+          >
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+              <KeyValue label="Created">{formatDateTime(user?.created_at)}</KeyValue>
+              <KeyValue label="Consent updated">{formatDateTime(user?.consent_updated_at)}</KeyValue>
+              <KeyValue label="Last login">{user?.last_login_at ? formatDateTime(user.last_login_at) : 'Never'}</KeyValue>
+              <KeyValue label="Account active">{user?.is_active ? 'Yes' : 'No'}</KeyValue>
+              <KeyValue label="Source">{user?.source || '—'}</KeyValue>
+              <KeyValue label="Generated">{formatDateTime(investigation.generated_at)}</KeyValue>
+            </div>
+          </Panel>
+
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+            <StatCard label="Events" value={formatNumber(counts.events)} hint="Returned window" icon={Activity} tone="blue" />
+            <StatCard label="Alerts" value={formatNumber(counts.alerts)} hint="Returned window" icon={ShieldAlert} tone="red" />
+            <StatCard label="Incidents" value={formatNumber(counts.incidents)} hint="Returned window" icon={ShieldAlert} tone="orange" />
+            <StatCard label="Risk assessments" value={formatNumber(counts.risks)} hint="Returned window" icon={Target} tone="purple" />
+            <StatCard label="Anomalies" value={formatNumber(counts.anomalies)} hint="is_anomaly = true" icon={BrainCircuit} tone="amber" />
+            <StatCard label="PII findings" value={formatNumber(counts.findings)} hint="Derived metadata" icon={FileText} tone="cyan" />
+          </div>
+
+          <Panel title={`Devices (${devices.length})`} subtitle="Enrolled endpoint credentials; token hashes are never returned" bodyClassName="p-0">
+            {devices.length === 0 ? (
+              <EmptyState icon={Laptop} title="No enrolled devices" message="This user has no endpoint devices. Enrollment requires ALLOWED consent and an active, unrestricted account." />
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="soc-table">
+                  <thead>
+                    <tr>
+                      <th>Hostname</th>
+                      <th>Device ID</th>
+                      <th>OS</th>
+                      <th>Agent</th>
+                      <th>Status</th>
+                      <th>Enrolled</th>
+                      <th>Heartbeat</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {devices.map((device) => (
+                      <tr key={device.device_id}>
+                        <td className="font-medium text-slate-200">{device.hostname || '—'}</td>
+                        <td className="max-w-[16rem] truncate font-mono text-[10px] text-slate-500" title={device.device_id}>{device.device_id}</td>
+                        <td className="text-slate-400">{device.os_version || '—'}</td>
+                        <td className="text-slate-400">{device.agent_version || '—'}</td>
+                        <td><Badge tone={statusTone(device.status)}>{device.status}</Badge></td>
+                        <td className="whitespace-nowrap text-slate-400">{formatDateTime(device.enrolled_at)}</td>
+                        <td className="whitespace-nowrap text-slate-400">{device.last_heartbeat ? timeAgo(device.last_heartbeat) : 'Never'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Panel>
+
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+            <Panel title={`Alerts (${alerts.length})`} bodyClassName="p-0">
+              {alerts.length === 0 ? (
+                <p className="p-4 text-xs text-slate-500">No alerts for this user.</p>
+              ) : (
+                <div className="max-h-80 overflow-y-auto">
+                  {alerts.map((alert) => (
+                    <div key={alert._id || alert.id} className="border-b border-slate-800/70 px-4 py-3 last:border-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge tone={severityTone(alert.severity)}>{alert.severity}</Badge>
+                        <Badge tone={statusTone(alert.status)}>{alert.status}</Badge>
+                        <span className="ml-auto text-[10px] text-slate-500">{timeAgo(alert.timestamp)}</span>
+                      </div>
+                      <p className="mt-1 text-xs font-semibold text-slate-200">{alert.title}</p>
+                      <p className="mt-0.5 text-[11px] text-slate-500">{alert.reason}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Panel>
+
+            <Panel title={`Incidents (${incidents.length})`} bodyClassName="p-0">
+              {incidents.length === 0 ? (
+                <p className="p-4 text-xs text-slate-500">No incidents for this user.</p>
+              ) : (
+                <div className="max-h-80 overflow-y-auto">
+                  {incidents.map((incident) => (
+                    <div key={incident._id || incident.id} className="border-b border-slate-800/70 px-4 py-3 last:border-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge tone={severityTone(incident.severity)}>{incident.severity}</Badge>
+                        <Badge tone={statusTone(incident.status)}>{incident.status}</Badge>
+                        <span className="ml-auto text-[10px] text-slate-500">{timeAgo(incident.created_time)}</span>
+                      </div>
+                      <p className="mt-1 text-xs font-semibold text-slate-200">{incident.title}</p>
+                      <p className="mt-0.5 text-[11px] text-slate-500">{incident.reason}</p>
+                      {incident.assigned_to ? <p className="mt-0.5 text-[10px] text-slate-600">Assigned to {incident.assigned_to}</p> : null}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Panel>
+          </div>
+
+          <Panel title={`Risk assessments (${risks.length})`} bodyClassName="p-0">
+            {risks.length === 0 ? (
+              <p className="p-4 text-xs text-slate-500">No risk assessments for this user.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="soc-table">
+                  <thead>
+                    <tr>
+                      <th>Time</th>
+                      <th>Category</th>
+                      <th>Combined</th>
+                      <th>Privacy</th>
+                      <th>Behaviour</th>
+                      <th>Endpoint</th>
+                      <th>Access</th>
+                      <th>Explanation</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {risks.map((risk) => (
+                      <tr key={risk.risk_id}>
+                        <td className="whitespace-nowrap text-slate-400" title={formatDateTime(risk.timestamp)}>{timeAgo(risk.timestamp)}</td>
+                        <td><Badge tone={severityTone(risk.risk_category)}>{risk.risk_category}</Badge></td>
+                        <td className="font-mono text-slate-100">{formatScore(risk.combined_score, 1)}</td>
+                        <td className="font-mono text-slate-400">{formatScore(risk.privacy_score, 1)}</td>
+                        <td className="font-mono text-slate-400">{formatScore(risk.behavioral_score, 1)}</td>
+                        <td className="font-mono text-slate-400">{formatScore(risk.endpoint_score, 1)}</td>
+                        <td className="font-mono text-slate-400">{formatScore(risk.access_score, 1)}</td>
+                        <td className="max-w-[22rem] text-[11px] text-slate-500">
+                          <span className="line-clamp-2" title={(risk.explanation || []).join(' ')}>
+                            {(risk.explanation || risk.risk_factors || []).join(' ') || '—'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Panel>
+
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+            <Panel title={`Behavioural findings (${anomalies.length})`} bodyClassName="p-0">
+              {anomalies.length === 0 ? (
+                <p className="p-4 text-xs text-slate-500">No behavioural findings for this user.</p>
+              ) : (
+                <div className="max-h-80 overflow-y-auto">
+                  {anomalies.map((finding) => (
+                    <div key={finding.anomaly_id} className="border-b border-slate-800/70 px-4 py-3 last:border-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge tone={finding.is_anomaly ? 'red' : 'green'}>{finding.is_anomaly ? 'anomaly' : 'baseline'}</Badge>
+                        <span className="font-mono text-[10px] text-slate-500">{finding.anomaly_type}</span>
+                        <span className="ml-auto text-[10px] text-slate-500">{timeAgo(finding.timestamp)}</span>
+                      </div>
+                      <p className="mt-1 text-[11px] text-slate-400">{finding.reason}</p>
+                      <p className="mt-0.5 font-mono text-[10px] text-slate-500">rate {formatScore(finding.activity_rate, 2)} · deviation {formatScore(finding.deviation, 2)}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Panel>
+
+            <Panel title={`PII findings (${findings.length})`} subtitle="Derived metadata only; raw analysed text is never stored" bodyClassName="p-0">
+              {findings.length === 0 ? (
+                <p className="p-4 text-xs text-slate-500">No PII findings for this user.</p>
+              ) : (
+                <div className="max-h-80 overflow-y-auto">
+                  {findings.map((finding) => (
+                    <div key={finding.finding_id} className="border-b border-slate-800/70 px-4 py-3 last:border-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge tone={finding.category === 'HIGH_RISK' ? 'red' : finding.category === 'SENSITIVE' ? 'amber' : 'green'}>{finding.category}</Badge>
+                        <span className="font-mono text-[10px] text-slate-400">score {finding.sensitivity_score}</span>
+                        <span className="ml-auto text-[10px] text-slate-500">{timeAgo(finding.timestamp)}</span>
+                      </div>
+                      <p className="mt-1 text-[11px] text-slate-400">
+                        {(finding.entities || []).map((entity) => `${entity.entity_type} ×${entity.count}`).join(', ') || 'No entities'}
+                      </p>
+                      <p className="mt-0.5 text-[10px] text-slate-600">engine {finding.engine}{finding.file_id ? ` · file ${finding.file_id}` : ''}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Panel>
+          </div>
+
+          <Panel title={`Recent events (${events.length})`} bodyClassName="p-0">
+            {events.length === 0 ? (
+              <p className="p-4 text-xs text-slate-500">No events for this user.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="soc-table">
+                  <thead>
+                    <tr>
+                      <th>Time</th>
+                      <th>Event type</th>
+                      <th>Action</th>
+                      <th>Source</th>
+                      <th>Application</th>
+                      <th>Resource</th>
+                      <th className="text-right">Context</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {events.map((event) => (
+                      <tr key={event.event_id}>
+                        <td className="whitespace-nowrap text-slate-400" title={formatDateTime(event.timestamp)}>{timeAgo(event.timestamp)}</td>
+                        <td className="font-mono text-[11px] text-slate-300">{event.event_type}</td>
+                        <td><Badge tone="neutral">{event.action}</Badge></td>
+                        <td><Badge tone={event.source === 'endpoint_agent' ? 'cyan' : event.source === 'saas_proxy' ? 'purple' : 'neutral'}>{event.source}</Badge></td>
+                        <td className="text-slate-400">{event.saas_app || '—'}</td>
+                        <td className="max-w-[18rem] truncate text-slate-400" title={event.resource_name || event.resource_id || ''}>{event.resource_name || event.resource_id || '—'}</td>
+                        <td className="text-right">
+                          <button type="button" className={btnSecondary} onClick={() => openEventContext(event.event_id)}>Open</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Panel>
+        </>
+      ) : (
+        <EmptyState
+          icon={Users}
+          title="No investigation selected"
+          message="Search the directory or open a profile from UEBA or Risk Posture. The investigation view is built from live records only."
+        />
       )}
+
+      <Drawer
+        open={eventOpen}
+        onClose={() => setEventOpen(false)}
+        title="Event context"
+        subtitle={eventId}
+      >
+        {eventLoading ? (
+          <LoadingState label="Correlating event records…" />
+        ) : eventError ? (
+          <ErrorState message={eventError} onRetry={() => openEventContext(eventId)} />
+        ) : eventContext ? (
+          <div className="space-y-5">
+            <section className="grid grid-cols-2 gap-3">
+              <KeyValue label="Event type">{eventContext.event?.event_type}</KeyValue>
+              <KeyValue label="Action">{eventContext.event?.action}</KeyValue>
+              <KeyValue label="Source">{eventContext.event?.source}</KeyValue>
+              <KeyValue label="Timestamp">{formatDateTime(eventContext.event?.timestamp)}</KeyValue>
+              <KeyValue label="User">{eventContext.event?.user_id || 'Unverified / none'}</KeyValue>
+              <KeyValue label="Device">{eventContext.event?.device_info?.hostname || eventContext.event?.device_id || '—'}</KeyValue>
+              <KeyValue label="Application">{eventContext.event?.saas_app || '—'}</KeyValue>
+              <KeyValue label="Resource">{eventContext.event?.resource_name || eventContext.event?.resource_id || '—'}</KeyValue>
+              <KeyValue label="Correlation ID" className="col-span-2">{eventContext.correlation_id}</KeyValue>
+            </section>
+
+            {eventContext.risk_assessment ? (
+              <section className="rounded-lg border border-slate-800 bg-slate-900/40 p-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-bold text-slate-100">Risk assessment</h3>
+                  <Badge tone={severityTone(eventContext.risk_assessment.risk_category)}>{eventContext.risk_assessment.risk_category}</Badge>
+                </div>
+                <p className="mt-2 font-mono text-2xl font-bold text-white">
+                  {formatScore(eventContext.risk_assessment.combined_score, 1)}
+                  <span className="ml-1 text-xs font-normal text-slate-500">/ 100</span>
+                </p>
+                {(eventContext.risk_assessment.explanation || []).length > 0 ? (
+                  <ul className="mt-2 list-disc space-y-1 pl-5 text-[11px] leading-relaxed text-slate-400">
+                    {eventContext.risk_assessment.explanation.map((item, index) => <li key={index}>{item}</li>)}
+                  </ul>
+                ) : null}
+              </section>
+            ) : null}
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <section>
+                <h3 className="mb-2 text-sm font-bold text-slate-100">Alerts ({eventContext.alerts?.length || 0})</h3>
+                {(eventContext.alerts || []).length === 0 ? (
+                  <p className="rounded-lg border border-slate-800 bg-slate-900/40 p-3 text-xs text-slate-500">No alerts linked to this event.</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {eventContext.alerts.map((alert) => (
+                      <div key={alert._id || alert.id} className="rounded-md border border-slate-800 bg-slate-900/40 p-3">
+                        <div className="flex flex-wrap gap-2">
+                          <Badge tone={severityTone(alert.severity)}>{alert.severity}</Badge>
+                          <Badge tone={statusTone(alert.status)}>{alert.status}</Badge>
+                        </div>
+                        <p className="mt-1 text-xs font-semibold text-slate-200">{alert.title}</p>
+                        <p className="mt-0.5 text-[11px] text-slate-500">{alert.reason}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+
+              <section>
+                <h3 className="mb-2 text-sm font-bold text-slate-100">Signals</h3>
+                <div className="space-y-2">
+                  <div className="rounded-lg border border-slate-800 bg-slate-900/40 p-3">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Behaviour</p>
+                    {eventContext.anomaly ? (
+                      <>
+                        <p className="mt-1 text-xs text-slate-200">{eventContext.anomaly.is_anomaly ? 'Anomalous activity' : 'Within baseline'}</p>
+                        <p className="mt-0.5 text-[11px] text-slate-500">{eventContext.anomaly.reason}</p>
+                      </>
+                    ) : <p className="mt-1 text-[11px] text-slate-500">No behaviour finding linked.</p>}
+                  </div>
+                  <div className="rounded-lg border border-slate-800 bg-slate-900/40 p-3">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Privacy</p>
+                    {eventContext.pii_finding ? (
+                      <>
+                        <p className="mt-1 text-xs text-slate-200">{eventContext.pii_finding.category} · score {eventContext.pii_finding.sensitivity_score}</p>
+                        <p className="mt-0.5 text-[11px] text-slate-500">
+                          {(eventContext.pii_finding.entities || []).map((entity) => `${entity.entity_type} ×${entity.count}`).join(', ') || 'No entities'}
+                        </p>
+                      </>
+                    ) : <p className="mt-1 text-[11px] text-slate-500">No PII finding linked.</p>}
+                  </div>
+                </div>
+              </section>
+            </div>
+
+            <section>
+              <h3 className="mb-2 text-sm font-bold text-slate-100">Related events ({eventContext.related_events?.length || 0})</h3>
+              {(eventContext.related_events || []).length === 0 ? (
+                <p className="rounded-lg border border-slate-800 bg-slate-900/40 p-3 text-xs text-slate-500">No related events share this correlation ID.</p>
+              ) : (
+                <div className="space-y-1.5">
+                  {eventContext.related_events.map((event) => (
+                    <div key={event.event_id} className="flex items-start justify-between gap-2 rounded-md border border-slate-800 bg-slate-900/30 px-3 py-2">
+                      <div className="min-w-0">
+                        <p className="truncate font-mono text-[11px] text-slate-300">{event.event_type} · {event.action}</p>
+                        <p className="text-[10px] text-slate-500">{formatDateTime(event.timestamp)}</p>
+                      </div>
+                      <Badge tone={event.event_id === eventContext.event?.event_id ? 'blue' : 'neutral'}>
+                        {event.event_id === eventContext.event?.event_id ? 'current' : event.source}
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+
+            {eventContext.event?.metadata ? (
+              <section>
+                <h3 className="mb-2 text-sm font-bold text-slate-100">Event metadata</h3>
+                <pre className="custom-scrollbar max-h-64 overflow-auto rounded-lg border border-slate-800 bg-slate-950 p-3 text-[10px] leading-relaxed text-slate-400">{JSON.stringify(eventContext.event.metadata, null, 2)}</pre>
+              </section>
+            ) : null}
+          </div>
+        ) : null}
+      </Drawer>
     </div>
   );
-};
-
-export default Investigation;
+}

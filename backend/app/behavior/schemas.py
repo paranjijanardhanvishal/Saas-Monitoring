@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Dict, Optional, Any
+from typing import Dict, Optional, Any, List
 from datetime import datetime, timezone
 import uuid
 
@@ -28,3 +28,8 @@ class AnomalyFindingModel(BaseModel):
     is_anomaly: bool
     reason: str
     anomaly_type: str = "ACTIVITY_SPIKE"
+    business_role: str = "GENERAL"
+    role_mismatch: bool = False
+    role_anomaly_score: float = 0.0
+    observed_resource_categories: List[str] = []
+    role_reason: Optional[str] = None

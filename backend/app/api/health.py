@@ -1,21 +1,28 @@
-from fastapi import APIRouter, HTTPException
-from app.database.mongodb import db_client
+from datetime import datetime, timezone
+
+from fastapi import APIRouter
+from fastapi.responses import JSONResponse
+
+from app.database.mongodb import ping_database
 
 router = APIRouter()
 
+APP_VERSION = "2.0.0"
+
+
 @router.get("/health")
 async def health_check():
-    """Check application health and MongoDB connectivity."""
-    db_status = "disconnected"
-    try:
-        # Ping the database to check connection
-        if db_client.client:
-            await db_client.client.admin.command('ping')
-            db_status = "connected"
-    except Exception as e:
-        db_status = f"error: {str(e)}"
-        
-    if db_status != "connected":
-        raise HTTPException(status_code=503, detail={"status": "unhealthy", "database": db_status})
-        
-    return {"status": "ok", "database": db_status}
+    """Public liveness/readiness probe.
+
+    Returns no configuration, credentials or exception text.
+    """
+    database_ok = await ping_database()
+    body = {
+        "status": "ok" if database_ok else "unhealthy",
+        "database": "connected" if database_ok else "disconnected",
+        "version": APP_VERSION,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+    if not database_ok:
+        return JSONResponse(status_code=503, content=body)
+    return body

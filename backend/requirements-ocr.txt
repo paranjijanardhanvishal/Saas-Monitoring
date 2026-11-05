@@ -1,0 +1,4 @@
+# Optional local OCR support for user-initiated image and scanned-PDF scans.
+pytesseract>=0.3.13
+Pillow>=10.0
+PyMuPDF>=1.24
