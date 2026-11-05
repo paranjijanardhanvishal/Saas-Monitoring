@@ -1,6 +1,8 @@
 import logging
+from datetime import datetime, timezone
 from typing import Any, Optional
 
+import bcrypt
 import certifi
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo import ASCENDING, DESCENDING, IndexModel
@@ -44,6 +46,7 @@ async def connect_to_mongo() -> None:
     except Exception:
         logger.exception("MongoDB connection check failed; API will report degraded health")
     await ensure_indexes()
+    await ensure_initial_admin()
 
 
 async def close_mongo_connection() -> None:
@@ -154,6 +157,66 @@ async def ensure_indexes() -> None:
         except Exception:
             logger.exception("Unexpected failure creating indexes for %s", collection)
     logger.info("MongoDB index initialisation complete")
+
+
+async def ensure_initial_admin() -> None:
+    """Safely provision or synchronize initial administrator account on startup."""
+    if db_client.db is None or is_test_database():
+        return
+
+    admin_email = (getattr(settings, "ADMIN_EMAIL", "admin@admin.com") or "admin@admin.com").strip().lower()
+    admin_user_id = getattr(settings, "ADMIN_USER_ID", "admin") or "admin"
+    admin_password = getattr(settings, "ADMIN_PASSWORD", "admin123") or "admin123"
+
+    try:
+        existing_admin = await db_client.db.users.find_one({
+            "$or": [
+                {"email": admin_email},
+                {"user_id": admin_user_id},
+                {"role": "ADMIN"},
+            ]
+        })
+
+        hashed = bcrypt.hashpw(
+            admin_password.encode("utf-8")[:72],
+            bcrypt.gensalt(rounds=12)
+        ).decode("ascii")
+
+        if not existing_admin:
+            now = datetime.now(timezone.utc)
+            admin_doc = {
+                "user_id": admin_user_id,
+                "email": admin_email,
+                "display_name": "Administrator",
+                "role": "ADMIN",
+                "business_role": "GENERAL",
+                "monitoring_enabled": "NOT_ASKED",
+                "hashed_password": hashed,
+                "source": "local",
+                "is_active": True,
+                "enforcement_status": "ACTIVE",
+                "must_change_password": True,
+                "created_at": now,
+                "consent_updated_at": None,
+                "last_login_at": None,
+            }
+            await db_client.db.users.insert_one(admin_doc)
+            logger.info("Auto-provisioned initial administrator '%s'", admin_email)
+        elif getattr(settings, "AUTO_SYNC_ADMIN_CREDENTIALS", False):
+            updates = {
+                "email": admin_email,
+                "role": "ADMIN",
+                "is_active": True,
+                "hashed_password": hashed,
+                "must_change_password": True,
+            }
+            await db_client.db.users.update_one(
+                {"_id": existing_admin["_id"]},
+                {"$set": updates}
+            )
+            logger.info("Synchronized administrator credentials for '%s'", admin_email)
+    except Exception as exc:
+        logger.warning("Could not auto-provision initial administrator: %s", exc)
 
 
 async def ping_database() -> bool:

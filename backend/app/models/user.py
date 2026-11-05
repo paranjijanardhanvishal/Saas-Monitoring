@@ -36,6 +36,7 @@ class UserModel(BaseModel):
     source: str = "local"
     is_active: bool = True
     enforcement_status: EnforcementStatus = "ACTIVE"
+    must_change_password: bool = False
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     consent_updated_at: Optional[datetime] = None
     last_login_at: Optional[datetime] = None
@@ -50,6 +51,7 @@ class UserResponse(BaseModel):
     monitoring_enabled: ConsentState = "NOT_ASKED"
     is_active: bool = True
     enforcement_status: EnforcementStatus = "ACTIVE"
+    must_change_password: bool = False
     created_at: datetime
     consent_updated_at: Optional[datetime] = None
     last_login_at: Optional[datetime] = None

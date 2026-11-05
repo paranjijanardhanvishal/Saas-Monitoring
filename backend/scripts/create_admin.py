@@ -34,6 +34,11 @@ def parse_args():
         action="store_true",
         help="Update the password if the administrator account already exists",
     )
+    parser.add_argument(
+        "--temporary",
+        action="store_true",
+        help="Allow temporary password (min 8 chars) and flag account for forced password change",
+    )
     return parser.parse_args()
 
 
@@ -44,11 +49,16 @@ async def main() -> int:
         return 2
 
     password = os.getenv("ADMIN_PASSWORD") or getpass.getpass("Administrator password: ")
-    try:
-        validate_password_strength(password)
-    except ValueError as exc:
-        print(str(exc))
-        return 2
+    if args.temporary:
+        if len(password) < 8:
+            print("Temporary password must be at least 8 characters long.")
+            return 2
+    else:
+        try:
+            validate_password_strength(password)
+        except ValueError as exc:
+            print(str(exc))
+            return 2
 
     await connect_to_mongo()
     try:
@@ -71,11 +81,12 @@ async def main() -> int:
                 )
                 return 1
 
-            hashed = get_password_hash(password)
+            hashed = get_password_hash(password, validate=not args.temporary)
             update_fields = {
                 "hashed_password": hashed,
                 "role": "ADMIN",
                 "is_active": True,
+                "must_change_password": bool(args.temporary),
             }
             if args.email:
                 update_fields["email"] = args.email.lower()
@@ -98,9 +109,10 @@ async def main() -> int:
             email=args.email.lower(),
             display_name=args.display_name,
             role="ADMIN",
-            hashed_password=get_password_hash(password),
+            hashed_password=get_password_hash(password, validate=not args.temporary),
             monitoring_enabled="NOT_ASKED",
             source="local",
+            must_change_password=bool(args.temporary),
         )
         await db.users.insert_one(admin.model_dump())
         print(f"Administrator '{admin.user_id}' created.")

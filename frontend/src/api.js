@@ -23,6 +23,12 @@ function readCookie(name) {
   return decodeURIComponent(match.slice(name.length + 1));
 }
 
+let memoryToken = null;
+
+export function setAuthToken(token) {
+  memoryToken = token;
+}
+
 const api = axios.create({
   baseURL: API_BASE_URL,
   withCredentials: true,
@@ -31,6 +37,10 @@ const api = axios.create({
 });
 
 api.interceptors.request.use((config) => {
+  if (memoryToken && !config.headers?.['Authorization']) {
+    config.headers = config.headers || {};
+    config.headers['Authorization'] = `Bearer ${memoryToken}`;
+  }
   const method = (config.method || 'get').toUpperCase();
   if (UNSAFE_METHODS.has(method)) {
     const csrf = readCookie('csrf_token');
@@ -106,12 +116,17 @@ export async function login(identifier, password) {
   const body = new URLSearchParams();
   body.append('username', identifier);
   body.append('password', password);
-  return post('/auth/login', body, {
+  const data = await post('/auth/login', body, {
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
   });
+  if (data?.access_token) {
+    setAuthToken(data.access_token);
+  }
+  return data;
 }
 
 export async function logout() {
+  setAuthToken(null);
   return post('/auth/logout', {});
 }
 

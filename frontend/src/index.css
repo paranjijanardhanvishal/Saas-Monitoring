@@ -111,3 +111,12 @@ body {
     scroll-behavior: auto !important;
   }
 }
+
+/* Netlify platform injected HUD / floating badge isolation */
+[data-netlify-hud],
+#netlify-hud,
+.netlify-badge,
+iframe[title*="Netlify"],
+div[data-netlify-site-id] {
+  z-index: 1 !important;
+}

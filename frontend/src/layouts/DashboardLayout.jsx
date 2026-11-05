@@ -20,7 +20,8 @@ import {
   X,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { Badge, consentTone, cx } from '../components/ui';
+import { Badge, consentTone, cx, inputClass, labelClass, btnPrimary, btnSecondary } from '../components/ui';
+import { changePassword, errorMessage } from '../api';
 
 const NAV_GROUPS = [
   {
@@ -58,14 +59,27 @@ const NAV_GROUPS = [
 ];
 
 export default function DashboardLayout() {
-  const { user, isAdmin, logout } = useAuth();
+  const { user, isAdmin, logout, refreshUser } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [pwdError, setPwdError] = useState('');
+  const [pwdSuccess, setPwdSuccess] = useState('');
+  const [pwdBusy, setPwdBusy] = useState(false);
 
   useEffect(() => {
     setMobileOpen(false);
   }, [location.pathname]);
+
+  useEffect(() => {
+    if (user?.must_change_password) {
+      setShowPasswordModal(true);
+    }
+  }, [user?.must_change_password]);
 
   const groups = useMemo(
     () =>
@@ -89,6 +103,34 @@ export default function DashboardLayout() {
   const handleLogout = async () => {
     await logout();
     navigate('/login', { replace: true });
+  };
+
+  const handleChangePassword = async (e) => {
+    e.preventDefault();
+    setPwdError('');
+    setPwdSuccess('');
+    if (newPassword.length < 12) {
+      setPwdError('New password must be at least 12 characters.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPwdError('New passwords do not match.');
+      return;
+    }
+    setPwdBusy(true);
+    try {
+      await changePassword(currentPassword, newPassword);
+      setPwdSuccess('Password changed successfully.');
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      await refreshUser();
+      setTimeout(() => setShowPasswordModal(false), 1500);
+    } catch (err) {
+      setPwdError(errorMessage(err, 'Could not update password. Ensure it has at least 12 characters.'));
+    } finally {
+      setPwdBusy(false);
+    }
   };
 
   const sidebar = (
@@ -175,6 +217,19 @@ export default function DashboardLayout() {
           </div>
           <button
             type="button"
+            onClick={() => {
+              setPwdError('');
+              setPwdSuccess('');
+              setShowPasswordModal(true);
+            }}
+            className="rounded-md p-2 text-slate-500 transition hover:bg-slate-800 hover:text-slate-200"
+            title="Change password"
+            aria-label="Change password"
+          >
+            <FileLock2 size={15} />
+          </button>
+          <button
+            type="button"
             onClick={handleLogout}
             className="rounded-md p-2 text-slate-500 transition hover:bg-slate-800 hover:text-red-300"
             title="Sign out"
@@ -238,6 +293,28 @@ export default function DashboardLayout() {
           </div>
         </header>
 
+        {user.must_change_password ? (
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-xs text-amber-200 sm:px-6">
+            <div className="flex items-center gap-2">
+              <ShieldAlert size={15} className="shrink-0 text-amber-400" />
+              <span>
+                <strong>Security action required:</strong> You are signed in with a temporary password. Please set a new password (min 12 characters).
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setPwdError('');
+                setPwdSuccess('');
+                setShowPasswordModal(true);
+              }}
+              className="inline-flex items-center gap-1.5 rounded-md bg-amber-500/20 px-3 py-1 font-semibold text-amber-200 ring-1 ring-inset ring-amber-500/40 hover:bg-amber-500/30 hover:text-white"
+            >
+              Update Password
+            </button>
+          </div>
+        ) : null}
+
         {monitoringPaused ? (
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-amber-900/40 bg-amber-950/20 px-4 py-2.5 text-xs text-amber-200 sm:px-6">
             <ShieldOff size={14} className="shrink-0 text-amber-400" />
@@ -258,6 +335,112 @@ export default function DashboardLayout() {
           </div>
         </main>
       </div>
+
+      {showPasswordModal ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <button
+            type="button"
+            aria-label="Close modal"
+            onClick={() => (!pwdBusy ? setShowPasswordModal(false) : null)}
+            className="absolute inset-0 cursor-default bg-black/70 backdrop-blur-sm"
+          />
+          <div className="relative w-full max-w-md rounded-xl border border-slate-800 bg-[#0e1422] p-6 shadow-2xl">
+            <div className="flex items-start justify-between">
+              <div>
+                <h2 className="text-base font-bold text-white">Change Password</h2>
+                <p className="mt-1 text-xs text-slate-400">
+                  {user.must_change_password
+                    ? 'Your account requires an updated password before continued operational use.'
+                    : 'Update your account password. Must be at least 12 characters.'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowPasswordModal(false)}
+                disabled={pwdBusy}
+                className="rounded-md p-1.5 text-slate-400 hover:bg-slate-800 hover:text-white"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <form onSubmit={handleChangePassword} className="mt-5 space-y-4">
+              {pwdError ? (
+                <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-300">
+                  {pwdError}
+                </div>
+              ) : null}
+              {pwdSuccess ? (
+                <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-300">
+                  {pwdSuccess}
+                </div>
+              ) : null}
+
+              <div>
+                <label className={labelClass} htmlFor="current-password">Current Password</label>
+                <input
+                  id="current-password"
+                  type="password"
+                  required
+                  autoComplete="current-password"
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  className={inputClass}
+                  placeholder="••••••••••••"
+                />
+              </div>
+
+              <div>
+                <label className={labelClass} htmlFor="new-password">New Password (min 12 characters)</label>
+                <input
+                  id="new-password"
+                  type="password"
+                  required
+                  minLength={12}
+                  autoComplete="new-password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  className={inputClass}
+                  placeholder="••••••••••••"
+                />
+              </div>
+
+              <div>
+                <label className={labelClass} htmlFor="confirm-new-password">Confirm New Password</label>
+                <input
+                  id="confirm-new-password"
+                  type="password"
+                  required
+                  minLength={12}
+                  autoComplete="new-password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className={inputClass}
+                  placeholder="••••••••••••"
+                />
+              </div>
+
+              <div className="mt-6 flex justify-end gap-2">
+                <button
+                  type="button"
+                  className={btnSecondary}
+                  onClick={() => setShowPasswordModal(false)}
+                  disabled={pwdBusy}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className={btnPrimary}
+                  disabled={pwdBusy || !currentPassword || !newPassword || !confirmPassword}
+                >
+                  {pwdBusy ? 'Updating...' : 'Update Password'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

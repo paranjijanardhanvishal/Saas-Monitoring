@@ -9,6 +9,12 @@ class Settings(BaseSettings):
     MONGODB_URI: str = "mongodb://localhost:27017"
     MONGO_DB_NAME: str = "saas_monitor"
 
+    # Initial administrator bootstrap
+    ADMIN_EMAIL: str = "admin@admin.com"
+    ADMIN_USER_ID: str = "admin"
+    ADMIN_PASSWORD: str = "admin123"
+    AUTO_SYNC_ADMIN_CREDENTIALS: bool = True
+
     # Comma separated list of allowed browser origins.
     FRONTEND_URL: str = "http://localhost:5173,http://127.0.0.1:5173"
 

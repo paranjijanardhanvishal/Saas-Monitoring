@@ -58,8 +58,9 @@ def validate_password_strength(password: str) -> None:
         raise ValueError("Password is too common.")
 
 
-def get_password_hash(password: str) -> str:
-    validate_password_strength(password)
+def get_password_hash(password: str, validate: bool = True) -> str:
+    if validate:
+        validate_password_strength(password)
     return bcrypt.hashpw(_password_bytes(password), bcrypt.gensalt(rounds=12)).decode("ascii")
 
 

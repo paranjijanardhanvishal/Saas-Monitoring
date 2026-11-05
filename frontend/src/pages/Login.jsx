@@ -53,13 +53,13 @@ export default function Login() {
   };
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#0b0f19] px-4 py-10">
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#0b0f19] px-4 py-10 pb-28 sm:pb-16">
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute -top-40 left-1/2 h-[520px] w-[520px] -translate-x-1/2 rounded-full bg-blue-600/10 blur-[120px]" />
         <div className="absolute bottom-0 right-0 h-[360px] w-[360px] rounded-full bg-emerald-500/5 blur-[100px]" />
       </div>
 
-      <div className="relative grid w-full max-w-5xl overflow-hidden rounded-2xl border border-slate-800 bg-[#0d1320] shadow-2xl shadow-black/40 lg:grid-cols-2">
+      <div className="relative z-20 grid w-full max-w-5xl overflow-hidden rounded-2xl border border-slate-800 bg-[#0d1320] shadow-2xl shadow-black/40 lg:grid-cols-2">
         <div className="hidden flex-col justify-between border-r border-slate-800 bg-[#0a0f1a] p-10 lg:flex">
           <div>
             <Link to="/" className="inline-flex items-center gap-3">

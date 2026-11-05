@@ -275,7 +275,7 @@ async def change_password(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     await db.users.update_one(
-        {"user_id": current_user.user_id}, {"$set": {"hashed_password": hashed}}
+        {"user_id": current_user.user_id}, {"$set": {"hashed_password": hashed, "must_change_password": False}}
     )
     await record_audit(
         db,
