@@ -146,6 +146,17 @@ export async function changePassword(currentPassword, newPassword) {
   });
 }
 
+export async function forgotPassword(email) {
+  return post('/auth/forgot-password', { email });
+}
+
+export async function resetPassword(token, newPassword) {
+  return post('/auth/reset-password', {
+    token,
+    new_password: newPassword,
+  });
+}
+
 /* ------------------------------------------------------------- dashboard */
 
 export const getDashboardOverview = () => get('/dashboard/overview');

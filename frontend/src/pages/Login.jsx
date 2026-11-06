@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
-import { ArrowRight, Eye, EyeOff, Loader2, LockKeyhole, ShieldCheck } from 'lucide-react';
+import { ArrowRight, Eye, EyeOff, Loader2, LockKeyhole, ShieldCheck, X } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { errorMessage } from '../api';
-import { inputClass, labelClass } from '../components/ui';
+import { errorMessage, forgotPassword } from '../api';
+import { btnPrimary, btnSecondary, inputClass, labelClass } from '../components/ui';
 
 export default function Login() {
   const { login, user, loading, sessionMessage } = useAuth();
@@ -14,6 +14,13 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+
+  const [forgotOpen, setForgotOpen] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotBusy, setForgotBusy] = useState(false);
+  const [forgotMessage, setForgotMessage] = useState('');
+  const [forgotError, setForgotError] = useState('');
+  const [devResetLink, setDevResetLink] = useState('');
 
   const destinationFor = (account) => {
     if (!account) return '/dashboard';
@@ -49,6 +56,25 @@ export default function Login() {
       setError(errorMessage(err, 'Sign-in failed. Please check your credentials.'));
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleForgotSubmit = async (e) => {
+    e.preventDefault();
+    setForgotBusy(true);
+    setForgotError('');
+    setForgotMessage('');
+    setDevResetLink('');
+    try {
+      const res = await forgotPassword(forgotEmail.trim());
+      setForgotMessage(res.message || 'If an account exists with that email address, a password reset link has been dispatched.');
+      if (res.dev_reset_link) {
+        setDevResetLink(res.dev_reset_link);
+      }
+    } catch (err) {
+      setForgotError(errorMessage(err, 'Failed to send password reset link.'));
+    } finally {
+      setForgotBusy(false);
     }
   };
 
@@ -154,9 +180,24 @@ export default function Login() {
             </div>
 
             <div>
-              <label htmlFor="password" className={labelClass}>
-                Password
-              </label>
+              <div className="flex items-center justify-between">
+                <label htmlFor="password" className={labelClass}>
+                  Password
+                </label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setForgotOpen(true);
+                    setForgotEmail(identifier.includes('@') ? identifier : '');
+                    setForgotMessage('');
+                    setForgotError('');
+                    setDevResetLink('');
+                  }}
+                  className="mb-1 text-[11px] font-semibold text-blue-400 hover:text-blue-300"
+                >
+                  Forgot password?
+                </button>
+              </div>
               <div className="relative">
                 <input
                   id="password"
@@ -207,6 +248,91 @@ export default function Login() {
           </div>
         </div>
       </div>
+
+      {forgotOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/75 backdrop-blur-sm"
+            onClick={() => setForgotOpen(false)}
+          />
+          <div className="relative w-full max-w-md rounded-2xl border border-slate-800 bg-[#0d1320] p-6 shadow-2xl">
+            <div className="flex items-start justify-between">
+              <div>
+                <h3 className="text-base font-bold text-white">Reset Password</h3>
+                <p className="mt-1 text-xs text-slate-400">
+                  Enter your registered account email address. We will generate a secure single-use reset link.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setForgotOpen(false)}
+                className="rounded-md p-1 text-slate-400 hover:bg-slate-800 hover:text-white"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <form onSubmit={handleForgotSubmit} className="mt-5 space-y-4">
+              {forgotMessage ? (
+                <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-300">
+                  <p>{forgotMessage}</p>
+                  {devResetLink ? (
+                    <div className="mt-2.5 rounded bg-slate-900/90 p-2 font-mono text-[11px] text-blue-300 break-all border border-blue-500/30">
+                      <span className="font-semibold text-slate-400">Local Dev Link: </span>
+                      <a href={devResetLink} className="underline text-blue-400 hover:text-blue-300">{devResetLink}</a>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+              {forgotError ? (
+                <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-300">
+                  {forgotError}
+                </div>
+              ) : null}
+
+              <div>
+                <label htmlFor="forgot-email" className={labelClass}>Registered Email Address</label>
+                <input
+                  id="forgot-email"
+                  type="email"
+                  required
+                  value={forgotEmail}
+                  onChange={(e) => setForgotEmail(e.target.value)}
+                  className={inputClass}
+                  placeholder="analyst@example.com"
+                  disabled={forgotBusy}
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  className={btnSecondary}
+                  onClick={() => setForgotOpen(false)}
+                  disabled={forgotBusy}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className={btnPrimary}
+                  disabled={forgotBusy || !forgotEmail}
+                >
+                  {forgotBusy ? (
+                    <>
+                      <Loader2 size={14} className="animate-spin" />
+                      Sending…
+                    </>
+                  ) : (
+                    'Send Reset Link'
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

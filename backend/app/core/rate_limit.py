@@ -48,3 +48,4 @@ class SlidingWindowLimiter:
 
 
 login_limiter = SlidingWindowLimiter(max_events=5, window_seconds=900)
+forgot_password_limiter = SlidingWindowLimiter(max_events=3, window_seconds=900)

@@ -222,3 +222,65 @@ async def test_change_password_requires_current_password(client, db):
         "/api/auth/login", data={"username": "pw-user", "password": "AnotherStrongPass99"}
     )
     assert new_login.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_forgot_and_reset_password_workflow(client, db):
+    await create_user("reset-user", email="reset-user@example.com")
+
+    # 1. Unknown email still returns 200 without disclosing non-existence
+    anon_resp = await client.post(
+        "/api/auth/forgot-password",
+        json={"email": "nonexistent@example.com"},
+    )
+    assert anon_resp.status_code == 200
+    assert "dispatched" in anon_resp.json()["message"]
+    assert "dev_reset_link" not in anon_resp.json()
+
+    # 2. Known user returns 200 and dev link in test environment
+    user_resp = await client.post(
+        "/api/auth/forgot-password",
+        json={"email": "reset-user@example.com"},
+    )
+    assert user_resp.status_code == 200
+    dev_link = user_resp.json().get("dev_reset_link")
+    assert dev_link and "token=" in dev_link
+    token = dev_link.split("token=")[1]
+
+    # 3. Invalid token fails
+    invalid_reset = await client.post(
+        "/api/auth/reset-password",
+        json={"token": "invalid-token-that-does-not-exist", "new_password": "BrandNewSecurePassword123"},
+    )
+    assert invalid_reset.status_code == 400
+
+    # 4. Weak password fails
+    weak_reset = await client.post(
+        "/api/auth/reset-password",
+        json={"token": token, "new_password": "short"},
+    )
+    assert weak_reset.status_code in (400, 422)
+
+    # 5. Valid reset updates password
+    valid_reset = await client.post(
+        "/api/auth/reset-password",
+        json={"token": token, "new_password": "BrandNewSecurePassword123"},
+    )
+    assert valid_reset.status_code == 200
+
+    # 6. Token reuse fails
+    reuse_reset = await client.post(
+        "/api/auth/reset-password",
+        json={"token": token, "new_password": "BrandNewSecurePassword123"},
+    )
+    assert reuse_reset.status_code == 400
+
+    # 7. Old password no longer works, new password logs in
+    old_login = await client.post(
+        "/api/auth/login", data={"username": "reset-user", "password": TEST_PASSWORD}
+    )
+    assert old_login.status_code == 401
+    new_login = await client.post(
+        "/api/auth/login", data={"username": "reset-user", "password": "BrandNewSecurePassword123"}
+    )
+    assert new_login.status_code == 200

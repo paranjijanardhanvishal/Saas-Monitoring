@@ -40,6 +40,13 @@ class Settings(BaseSettings):
     AGENT_HEARTBEAT_STALE_SECONDS: int = 180
     AUTO_RISK_ENABLED: bool = True
 
+    # Email / Password Reset Service (optional)
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM: str = "security@saas-security-monitor.com"
+
     # Data retention (days). 0 disables automatic deletion.
     EVENT_RETENTION_DAYS: int = 90
     AUDIT_RETENTION_DAYS: int = 365

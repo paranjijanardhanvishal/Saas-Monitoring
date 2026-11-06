@@ -7,6 +7,7 @@ import ErrorBoundary from './components/ErrorBoundary';
 import { btnPrimary } from './components/ui';
 
 const Login = lazy(() => import('./pages/Login'));
+const ResetPassword = lazy(() => import('./pages/ResetPassword'));
 const Consent = lazy(() => import('./pages/Consent'));
 const Landing = lazy(() => import('./pages/Landing'));
 const Overview = lazy(() => import('./pages/Overview'));
@@ -104,6 +105,7 @@ function AppRoutes() {
     <Routes>
       <Route path="/" element={<Landing />} />
       <Route path="/login" element={<Login />} />
+      <Route path="/reset-password" element={<ResetPassword />} />
       <Route
         path="/consent"
         element={

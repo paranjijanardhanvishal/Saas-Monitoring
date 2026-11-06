@@ -1,5 +1,8 @@
+import hashlib
 import logging
-from datetime import datetime, timezone
+import secrets
+import smtplib
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
@@ -7,7 +10,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 
 from app.core.config import settings
 from app.core.dependencies import get_current_admin_user, get_current_user
-from app.core.rate_limit import login_limiter
+from app.core.rate_limit import forgot_password_limiter, login_limiter
 from app.core.security import (
     create_access_token,
     get_password_hash,
@@ -17,6 +20,8 @@ from app.core.security import (
 from app.database.mongodb import get_database
 from app.models.user import (
     ConsentUpdate,
+    ForgotPasswordRequest,
+    ResetPasswordRequest,
     Token,
     UserCreate,
     UserModel,
@@ -287,3 +292,155 @@ async def change_password(
         "success",
     )
     return {"status": "success"}
+
+
+@router.post("/forgot-password")
+async def forgot_password(
+    payload: ForgotPasswordRequest,
+    request: Request,
+):
+    """Initiate a secure password reset.
+    Enumeration-safe: always returns 200 whether email exists or not.
+    """
+    client_ip = request.client.host if request.client else "unknown"
+    limiter_key = f"{client_ip}:{str(payload.email).lower().strip()}"
+    if forgot_password_limiter.is_limited(limiter_key):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many password reset requests. Please try again later.",
+        )
+    forgot_password_limiter.record_failure(limiter_key)
+
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database not connected")
+
+    email = str(payload.email).lower().strip()
+    user = await db.users.find_one({"email": email})
+
+    dev_reset_link = None
+    if user and user.get("is_active", True):
+        raw_token = secrets.token_urlsafe(32)
+        token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+        now = datetime.now(timezone.utc)
+        expires_at = now + timedelta(minutes=15)
+
+        # Invalidate any previous unexpired reset tokens for this user
+        await db.password_resets.update_many(
+            {"user_id": user["user_id"], "used": False},
+            {"$set": {"used": True, "invalidated_at": now}},
+        )
+
+        # Store only the SHA-256 hash of the token
+        await db.password_resets.insert_one({
+            "token_hash": token_hash,
+            "user_id": user["user_id"],
+            "email": email,
+            "expires_at": expires_at,
+            "used": False,
+            "created_at": now,
+        })
+
+        await record_audit(
+            db,
+            user["user_id"],
+            user.get("role", "USER"),
+            "auth.password_reset_requested",
+            "user",
+            user["user_id"],
+            "success",
+            client_ip=client_ip,
+        )
+
+        frontend_origin = (settings.FRONTEND_URL.split(",")[0] if settings.FRONTEND_URL else "http://localhost:5173").rstrip("/")
+        reset_link = f"{frontend_origin}/reset-password?token={raw_token}"
+
+        if getattr(settings, "SMTP_HOST", ""):
+            try:
+                import email.message
+                msg = email.message.EmailMessage()
+                msg["Subject"] = "SaaS Security Monitor - Password Reset Request"
+                msg["From"] = settings.SMTP_FROM
+                msg["To"] = email
+                msg.set_content(
+                    f"Hello,\n\nA password reset was requested for your account ({user['user_id']}).\n"
+                    f"Use the following link to reset your password:\n{reset_link}\n\n"
+                    f"This link will expire in 15 minutes. If you did not request this, please ignore this email.\n"
+                )
+                with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=10) as server:
+                    server.starttls()
+                    if settings.SMTP_USER and settings.SMTP_PASSWORD:
+                        server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
+                    server.send_message(msg)
+            except Exception as mail_exc:
+                logger.warning("SMTP delivery failed for password reset: %s", mail_exc)
+
+        if getattr(settings, "APP_ENV", "development") != "production":
+            dev_reset_link = reset_link
+
+    response_data = {
+        "status": "success",
+        "message": "If an account exists with that email address, a password reset link has been dispatched.",
+    }
+    if dev_reset_link:
+        response_data["dev_reset_link"] = dev_reset_link
+    return response_data
+
+
+@router.post("/reset-password")
+async def reset_password(
+    payload: ResetPasswordRequest,
+    request: Request,
+):
+    """Validate single-use token and update password."""
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database not connected")
+
+    token_hash = hashlib.sha256(payload.token.strip().encode("utf-8")).hexdigest()
+    reset_doc = await db.password_resets.find_one({"token_hash": token_hash})
+    if not reset_doc:
+        raise HTTPException(status_code=400, detail="Invalid or expired password reset token.")
+
+    if reset_doc.get("used", False):
+        raise HTTPException(status_code=400, detail="This reset token has already been used.")
+
+    now = datetime.now(timezone.utc)
+    expires_at = reset_doc["expires_at"]
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if expires_at < now:
+        raise HTTPException(status_code=400, detail="This password reset token has expired.")
+
+    try:
+        validate_password_strength(payload.new_password)
+        hashed = get_password_hash(payload.new_password)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    user_id = reset_doc["user_id"]
+    await db.users.update_one(
+        {"user_id": user_id},
+        {"$set": {"hashed_password": hashed, "must_change_password": False}},
+    )
+
+    # Invalidate token immediately to prevent reuse
+    await db.password_resets.update_one(
+        {"_id": reset_doc["_id"]},
+        {"$set": {"used": True, "used_at": now}},
+    )
+
+    await record_audit(
+        db,
+        user_id,
+        "USER",
+        "auth.password_reset_completed",
+        "user",
+        user_id,
+        "success",
+        client_ip=request.client.host if request.client else None,
+    )
+    return {
+        "status": "success",
+        "message": "Your password has been reset successfully. You can now log in with your new password.",
+    }
