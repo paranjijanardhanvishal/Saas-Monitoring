@@ -8,7 +8,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from io import BytesIO
+import os
 from pathlib import Path
+import shutil
 from typing import Any
 
 from app.core.config import settings
@@ -17,6 +19,34 @@ from app.core.config import settings
 SUPPORTED_FILE_TYPES = {".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp"}
 MAX_OCR_IMAGE_PIXELS = 25_000_000
 MAX_OCR_PAGE_EDGE = 3_000
+
+
+def _resolve_tesseract_cmd() -> str | None:
+    if settings.TESSERACT_CMD.strip() and Path(settings.TESSERACT_CMD.strip()).exists():
+        return settings.TESSERACT_CMD.strip()
+    which = shutil.which("tesseract")
+    if which:
+        return which
+    candidates = [
+        Path(os.path.expandvars(r"%LOCALAPPDATA%\Programs\Tesseract-OCR\tesseract.exe")),
+        Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe"),
+        Path(r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe"),
+        Path("/usr/bin/tesseract"),
+        Path("/usr/local/bin/tesseract"),
+    ]
+    for c in candidates:
+        if c.is_file():
+            return str(c)
+    return settings.TESSERACT_CMD.strip() or None
+
+
+def _configure_pytesseract(pytesseract) -> None:
+    cmd = _resolve_tesseract_cmd()
+    if cmd:
+        pytesseract.pytesseract.tesseract_cmd = cmd
+        tessdata_dir = Path(cmd).parent / "tessdata"
+        if tessdata_dir.is_dir() and "TESSDATA_PREFIX" not in os.environ:
+            os.environ["TESSDATA_PREFIX"] = str(tessdata_dir)
 
 
 class OCRUnavailableError(RuntimeError):
@@ -46,8 +76,7 @@ def get_ocr_status() -> dict[str, Any]:
         import pytesseract
         from PIL import Image  # noqa: F401
 
-        if settings.TESSERACT_CMD.strip():
-            pytesseract.pytesseract.tesseract_cmd = settings.TESSERACT_CMD.strip()
+        _configure_pytesseract(pytesseract)
         version = str(pytesseract.get_tesseract_version()).split()[0]
     except Exception:
         return {
@@ -84,8 +113,7 @@ def extract_document_text(payload: bytes, filename: str | None) -> OCRExtraction
     import fitz
     import pytesseract
     from PIL import Image
-    if settings.TESSERACT_CMD.strip():
-        pytesseract.pytesseract.tesseract_cmd = settings.TESSERACT_CMD.strip()
+    _configure_pytesseract(pytesseract)
 
     extracted: list[str] = []
     page_count = 1
