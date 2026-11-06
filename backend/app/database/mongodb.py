@@ -46,7 +46,7 @@ async def connect_to_mongo() -> None:
     except Exception:
         logger.exception("MongoDB connection check failed; API will report degraded health")
     await ensure_indexes()
-    await ensure_initial_admin()
+    await ensure_demo_accounts()
 
 
 async def close_mongo_connection() -> None:
@@ -217,6 +217,68 @@ async def ensure_initial_admin() -> None:
             logger.info("Synchronized administrator credentials for '%s'", admin_email)
     except Exception as exc:
         logger.warning("Could not auto-provision initial administrator: %s", exc)
+
+
+async def ensure_demo_accounts() -> None:
+    """Safely provision initial demo accounts (Admin, Editor, Visitor) if they do not exist."""
+    if db_client.db is None or is_test_database():
+        return
+
+    # First ensure admin is provisioned
+    await ensure_initial_admin()
+
+    demo_accounts = [
+        {
+            "user_id": "editor",
+            "email": "editor@user.com",
+            "display_name": "SOC Editor",
+            "role": "EDITOR",
+            "business_role": "GENERAL",
+            "password": "user123",
+        },
+        {
+            "user_id": "visitor",
+            "email": "visitor@visitor.com",
+            "display_name": "Demo Visitor",
+            "role": "VISITOR",
+            "business_role": "GENERAL",
+            "password": "visitor123",
+        },
+    ]
+
+    now = datetime.now(timezone.utc)
+    for account in demo_accounts:
+        try:
+            existing = await db_client.db.users.find_one({
+                "$or": [{"email": account["email"]}, {"user_id": account["user_id"]}]
+            })
+            hashed = bcrypt.hashpw(account["password"].encode("utf-8")[:72], bcrypt.gensalt(rounds=12)).decode("ascii")
+            if not existing:
+                doc = {
+                    "user_id": account["user_id"],
+                    "email": account["email"],
+                    "display_name": account["display_name"],
+                    "role": account["role"],
+                    "business_role": account["business_role"],
+                    "monitoring_enabled": "ALLOWED",
+                    "hashed_password": hashed,
+                    "source": "demo_provisioned",
+                    "is_active": True,
+                    "enforcement_status": "ACTIVE",
+                    "must_change_password": False,
+                    "created_at": now,
+                    "consent_updated_at": None,
+                    "last_login_at": None,
+                }
+                await db_client.db.users.insert_one(doc)
+                logger.info("Auto-provisioned demo account '%s' (%s)", account["email"], account["role"])
+            elif getattr(settings, "AUTO_SYNC_ADMIN_CREDENTIALS", False):
+                await db_client.db.users.update_one(
+                    {"_id": existing["_id"]},
+                    {"$set": {"role": account["role"], "is_active": True, "hashed_password": hashed}}
+                )
+        except Exception as exc:
+            logger.warning("Could not auto-provision demo account '%s': %s", account["email"], exc)
 
 
 async def ping_database() -> bool:

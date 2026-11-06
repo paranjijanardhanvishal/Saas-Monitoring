@@ -7,6 +7,7 @@ from app.core.dependencies import (
     ensure_self_or_admin,
     get_current_active_user,
     get_current_admin_user,
+    get_current_editor_or_admin_user,
 )
 from app.database.mongodb import get_database
 from app.enforcement.policy import determine_response_action, requires_confirmation
@@ -39,9 +40,12 @@ def _not_found(message: str) -> HTTPException:
 )
 async def get_recommendation(
     risk_id: str,
-    current_user: UserModel = Depends(get_current_admin_user),
+    current_user: UserModel = Depends(get_current_active_user),
 ):
     """Advisory recommendation only; nothing is executed."""
+    if current_user.role not in ("ADMIN", "EDITOR", "VISITOR"):
+        raise HTTPException(status_code=403, detail="Security console access required")
+
     db = get_database()
     if db is None:
         raise HTTPException(status_code=503, detail="Database not connected")
@@ -77,7 +81,7 @@ async def get_recommendation(
 async def trigger_enforcement_response(
     payload: EnforcementRequest,
     request: Request,
-    current_user: UserModel = Depends(get_current_admin_user),
+    current_user: UserModel = Depends(get_current_editor_or_admin_user),
 ):
     """Execute an administrator-confirmed response for a risk assessment."""
     try:
@@ -124,7 +128,7 @@ async def get_enforcement_responses(
         raise HTTPException(status_code=503, detail="Database not connected")
 
     query: dict = {}
-    if current_user.role == "ADMIN":
+    if current_user.role in ("ADMIN", "EDITOR", "VISITOR"):
         if user_id:
             query["user_id"] = user_id
     else:
@@ -164,7 +168,7 @@ async def rollback_enforcement_response(
     response_id: str,
     payload: RollbackRequest,
     request: Request,
-    current_user: UserModel = Depends(get_current_admin_user),
+    current_user: UserModel = Depends(get_current_editor_or_admin_user),
 ):
     """Undo an active restriction. Revoked devices must re-enroll."""
     try:

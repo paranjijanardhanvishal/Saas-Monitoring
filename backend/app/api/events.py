@@ -91,6 +91,12 @@ async def get_events(
     if db is None:
         raise HTTPException(status_code=503, detail="Database not connected")
 
+    if current_user.role in ("EDITOR", "VISITOR"):
+        raise HTTPException(
+            status_code=403,
+            detail="Live Activity monitoring is restricted to SOC administrators.",
+        )
+
     if start and end and start > end:
         raise HTTPException(status_code=400, detail="start must be before end")
 

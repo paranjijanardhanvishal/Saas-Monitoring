@@ -91,7 +91,8 @@ function actionTone(action) {
 }
 
 export default function Enforcement() {
-  const { isAdmin } = useAuth();
+  const { isAdmin, isEditor, isVisitor } = useAuth();
+  const canEnforce = isAdmin || isEditor;
 
   const [risks, setRisks] = useState([]);
   const [responses, setResponses] = useState([]);
@@ -436,7 +437,7 @@ export default function Enforcement() {
           selectedRisk ? (
             <div className="flex flex-wrap items-center justify-between gap-2">
               <button type="button" className={btnSecondary} onClick={closeReview}>Close</button>
-              {isAdmin ? (
+              {canEnforce ? (
                 <button
                   type="button"
                   className={selectedMeta.destructive ? btnDanger : btnPrimary}

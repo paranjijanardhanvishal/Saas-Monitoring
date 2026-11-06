@@ -122,35 +122,21 @@ function AppRoutes() {
       >
         <Route path="/dashboard" element={<Overview />} />
         <Route path="/risk-posture" element={<RiskPosture />} />
-        <Route path="/live-activity" element={<LiveActivity />} />
+        <Route
+          path="/live-activity"
+          element={
+            <AdminOnly>
+              <LiveActivity />
+            </AdminOnly>
+          }
+        />
         <Route path="/sensitive-files" element={<SensitiveFiles />} />
         <Route path="/alerts" element={<Alerts />} />
         <Route path="/incidents" element={<Incidents />} />
         <Route path="/ueba" element={<Ueba />} />
-        <Route
-          path="/users"
-          element={
-            <AdminOnly>
-              <Users />
-            </AdminOnly>
-          }
-        />
-        <Route
-          path="/investigation"
-          element={
-            <AdminOnly>
-              <Investigation />
-            </AdminOnly>
-          }
-        />
-        <Route
-          path="/enforcement"
-          element={
-            <AdminOnly>
-              <Enforcement />
-            </AdminOnly>
-          }
-        />
+        <Route path="/users" element={<Users />} />
+        <Route path="/investigation" element={<Investigation />} />
+        <Route path="/enforcement" element={<Enforcement />} />
         <Route
           path="/system-health"
           element={

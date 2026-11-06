@@ -10,6 +10,7 @@ from app.core.dependencies import (
     ensure_self_or_admin,
     get_current_active_user,
     get_current_admin_user,
+    get_current_editor_or_admin_user,
 )
 from app.database.mongodb import get_database
 from app.models.alert import (
@@ -55,7 +56,7 @@ async def get_alerts(
         raise HTTPException(status_code=503, detail="Database not connected")
 
     query: dict = {}
-    if current_user.role == "ADMIN":
+    if current_user.role in ("ADMIN", "EDITOR", "VISITOR"):
         if user_id:
             query["user_id"] = user_id
     else:
@@ -130,7 +131,7 @@ async def update_alert_status(
     alert_id: str,
     payload: AlertStatusUpdate,
     request: Request,
-    current_user: UserModel = Depends(get_current_admin_user),
+    current_user: UserModel = Depends(get_current_editor_or_admin_user),
 ):
     db = get_database()
     if db is None:

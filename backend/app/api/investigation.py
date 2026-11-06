@@ -21,13 +21,27 @@ def _serialize(document: dict[str, Any]) -> dict[str, Any]:
     return document
 
 
+def _mask_email(email: Optional[str]) -> Optional[str]:
+    if not email:
+        return None
+    parts = str(email).split("@")
+    if len(parts) != 2:
+        return "***"
+    name, domain = parts
+    masked_name = name[0] + "***" if len(name) > 1 else "***"
+    return f"{masked_name}@{domain}"
+
+
 @router.get("/investigation/search")
 async def search_users(
     q: str = Query(min_length=2, max_length=100),
     limit: int = Query(20, ge=1, le=100),
-    current_user: UserModel = Depends(get_current_admin_user),
+    current_user: UserModel = Depends(get_current_active_user),
 ):
     """Search the user directory by id, email or display name."""
+    if current_user.role not in ("ADMIN", "EDITOR", "VISITOR"):
+        raise HTTPException(status_code=403, detail="Security console access required")
+
     db = get_database()
     if db is None:
         raise HTTPException(status_code=503, detail="Database not connected")

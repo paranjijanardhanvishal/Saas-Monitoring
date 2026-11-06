@@ -10,6 +10,7 @@ from app.core.dependencies import (
     ensure_self_or_admin,
     get_current_active_user,
     get_current_admin_user,
+    get_current_editor_or_admin_user,
 )
 from app.database.mongodb import get_database
 from app.models.incident import (
@@ -57,7 +58,7 @@ async def get_incidents(
         raise HTTPException(status_code=503, detail="Database not connected")
 
     query: dict = {}
-    if current_user.role == "ADMIN":
+    if current_user.role in ("ADMIN", "EDITOR", "VISITOR"):
         if user_id:
             query["user_id"] = user_id
     else:
@@ -94,7 +95,7 @@ async def get_incident(incident_id: str, current_user: UserModel = Depends(get_c
 async def create_incident(
     payload: IncidentCreate,
     request: Request,
-    current_user: UserModel = Depends(get_current_admin_user),
+    current_user: UserModel = Depends(get_current_editor_or_admin_user),
 ):
     db = get_database()
     if db is None:
@@ -137,7 +138,7 @@ async def update_incident_status(
     incident_id: str,
     payload: IncidentStatusUpdate,
     request: Request,
-    current_user: UserModel = Depends(get_current_admin_user),
+    current_user: UserModel = Depends(get_current_editor_or_admin_user),
 ):
     db = get_database()
     if db is None:
@@ -179,7 +180,7 @@ async def assign_incident(
     incident_id: str,
     payload: IncidentAssign,
     request: Request,
-    current_user: UserModel = Depends(get_current_admin_user),
+    current_user: UserModel = Depends(get_current_editor_or_admin_user),
 ):
     db = get_database()
     if db is None:
@@ -221,7 +222,7 @@ async def add_incident_note(
     incident_id: str,
     payload: IncidentNote,
     request: Request,
-    current_user: UserModel = Depends(get_current_admin_user),
+    current_user: UserModel = Depends(get_current_editor_or_admin_user),
 ):
     db = get_database()
     if db is None:

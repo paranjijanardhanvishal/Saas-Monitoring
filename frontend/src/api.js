@@ -163,7 +163,11 @@ export const getUserSummary = (userId) =>
   get(`/users/${encodeURIComponent(userId)}/summary`);
 export const getUserDevices = (userId) =>
   get(`/users/${encodeURIComponent(userId)}/devices`);
-export const createUser = (payload) => post('/auth/register', payload);
+export const createUser = (payload) => post('/users', payload);
+export const updateUser = (userId, payload) =>
+  patch(`/users/${encodeURIComponent(userId)}`, payload);
+export const deleteUser = (userId) =>
+  api.delete(`/users/${encodeURIComponent(userId)}`).then((r) => r.data);
 export const updateUserBusinessRole = (userId, businessRole) =>
   patch(`/users/${encodeURIComponent(userId)}/business-role`, {
     business_role: businessRole,

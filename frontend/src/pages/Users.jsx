@@ -15,13 +15,16 @@ import {
 import {
   createEnrollmentToken,
   createUser,
+  deleteUser,
   errorMessage,
   getUsers,
   getUserDevices,
   getUserSummary,
   revokeAgentDevice,
+  updateUser,
   updateUserBusinessRole,
 } from '../api';
+import { useAuth } from '../context/AuthContext';
 import {
   Badge,
   btnDanger,
@@ -62,6 +65,7 @@ const emptyCreateForm = {
 };
 
 export default function Users() {
+  const { isAdmin, isEditor, isVisitor } = useAuth();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -83,6 +87,10 @@ export default function Users() {
   const [createBusy, setCreateBusy] = useState(false);
   const [createError, setCreateError] = useState('');
   const [createSuccess, setCreateSuccess] = useState('');
+
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
 
   const [tokenBusy, setTokenBusy] = useState(false);
   const [tokenData, setTokenData] = useState(null);
@@ -229,6 +237,24 @@ export default function Users() {
     }
   };
 
+  const handleDeleteUser = async () => {
+    if (!deleteTarget) return;
+    setDeleteBusy(true);
+    setDeleteError('');
+    try {
+      await deleteUser(deleteTarget.user_id);
+      setDeleteTarget(null);
+      if (selected?.user_id === deleteTarget.user_id) {
+        closeDetail();
+      }
+      load({ silent: true });
+    } catch (err) {
+      setDeleteError(errorMessage(err, 'Could not delete user.'));
+    } finally {
+      setDeleteBusy(false);
+    }
+  };
+
   const handleBusinessRoleUpdate = async () => {
     if (!selected) return;
     setBusinessRoleBusy(true);
@@ -279,13 +305,22 @@ export default function Users() {
               <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />
               Refresh
             </button>
-            <button type="button" onClick={() => { setCreateOpen(true); setCreateError(''); setCreateSuccess(''); }} className={btnPrimary}>
-              <UserPlus size={15} />
-              Create user
-            </button>
+            {isAdmin ? (
+              <button type="button" onClick={() => { setCreateOpen(true); setCreateError(''); setCreateSuccess(''); }} className={btnPrimary}>
+                <UserPlus size={15} />
+                Create user
+              </button>
+            ) : null}
           </>
         }
       />
+
+      {isVisitor ? (
+        <InlineNotice
+          tone="neutral"
+          message="Visitor mode: You have read-only access to the user directory with sanitized contact details. User provisioning, role assignment, and endpoint management are restricted to SOC administrators."
+        />
+      ) : null}
 
       {error ? <ErrorState message={error} onRetry={() => load()} /> : null}
 
@@ -316,6 +351,8 @@ export default function Users() {
           <select value={role} onChange={(event) => { setRole(event.target.value); setSkip(0); }} className={`${selectClass} lg:w-36`}>
             <option value="">All access roles</option>
             <option value="ADMIN">ADMIN</option>
+            <option value="EDITOR">EDITOR</option>
+            <option value="VISITOR">VISITOR</option>
             <option value="USER">USER</option>
           </select>
           <select value={businessRole} onChange={(event) => { setBusinessRole(event.target.value); setSkip(0); }} className={`${selectClass} lg:w-44`}>
@@ -396,11 +433,25 @@ export default function Users() {
           selected ? (
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex flex-wrap gap-2">
-                <Badge tone={selected.role === 'ADMIN' ? 'blue' : 'neutral'}>{selected.role}</Badge>
+                <Badge tone={selected.role === 'ADMIN' ? 'blue' : selected.role === 'EDITOR' ? 'purple' : selected.role === 'VISITOR' ? 'emerald' : 'neutral'}>{selected.role}</Badge>
                 <Badge tone={consentTone(selected.monitoring_enabled)}>{selected.monitoring_enabled.replace('_', ' ')}</Badge>
                 <Badge tone={statusTone(selected.enforcement_status)}>{selected.enforcement_status}</Badge>
               </div>
-              <button type="button" className={btnSecondary} onClick={closeDetail}>Close</button>
+              <div className="flex items-center gap-2">
+                {isAdmin && selected.user_id !== 'admin' ? (
+                  <button
+                    type="button"
+                    className={btnDanger}
+                    onClick={() => {
+                      setDeleteError('');
+                      setDeleteTarget(selected);
+                    }}
+                  >
+                    Delete account
+                  </button>
+                ) : null}
+                <button type="button" className={btnSecondary} onClick={closeDetail}>Close</button>
+              </div>
             </div>
           ) : null
         }
@@ -435,7 +486,7 @@ export default function Users() {
                     className={selectClass}
                     value={businessRoleDraft}
                     onChange={(event) => setBusinessRoleDraft(event.target.value)}
-                    disabled={businessRoleBusy}
+                    disabled={businessRoleBusy || isVisitor || (isEditor && selected.role === 'ADMIN')}
                   >
                     <option value="GENERAL">GENERAL — no department profile</option>
                     <option value="DEVELOPER">DEVELOPER</option>
@@ -443,10 +494,12 @@ export default function Users() {
                     <option value="FINANCE">FINANCE</option>
                   </select>
                 </div>
-                <button type="button" className={btnSecondary} onClick={handleBusinessRoleUpdate} disabled={businessRoleBusy || businessRoleDraft === (selected.business_role || 'GENERAL')}>
-                  {businessRoleBusy ? <Loader2 size={14} className="animate-spin" /> : null}
-                  Save business role
-                </button>
+                {!isVisitor && !(isEditor && selected.role === 'ADMIN') ? (
+                  <button type="button" className={btnSecondary} onClick={handleBusinessRoleUpdate} disabled={businessRoleBusy || businessRoleDraft === (selected.business_role || 'GENERAL')}>
+                    {businessRoleBusy ? <Loader2 size={14} className="animate-spin" /> : null}
+                    Save business role
+                  </button>
+                ) : null}
               </div>
               <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
                 Role analytics use department-category signals from attributed endpoint events. A role change applies to new events.
@@ -454,46 +507,48 @@ export default function Users() {
               {businessRoleNotice ? <p className="mt-2 text-xs text-emerald-300">{businessRoleNotice}</p> : null}
             </section>
 
-            <section className="rounded-lg border border-slate-800 bg-slate-900/40 p-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <h3 className="text-sm font-bold text-slate-100">Endpoint enrollment</h3>
-                  <p className="mt-0.5 text-[11px] text-slate-500">
-                    Issue a one-time token, then run the agent enrollment command on the device.
-                  </p>
-                </div>
-                <button type="button" className={btnPrimary} onClick={handleToken} disabled={!canEnroll || tokenBusy}>
-                  {tokenBusy ? <Loader2 size={15} className="animate-spin" /> : <KeyRound size={15} />}
-                  Issue token
-                </button>
-              </div>
-              {!canEnroll ? (
-                <p className="mt-2 text-[11px] leading-relaxed text-amber-300/90">
-                  The user must be active, not restricted and have ALLOWED consent before a device can
-                  be enrolled.
-                </p>
-              ) : null}
-              {tokenError ? <p className="mt-2 text-xs text-red-300">{tokenError}</p> : null}
-              {tokenData ? (
-                <div className="mt-3 rounded-lg border border-emerald-900/50 bg-emerald-950/20 p-3">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-300">One-time enrollment token</p>
-                  <div className="mt-1.5 flex items-start gap-2">
-                    <code className="min-w-0 flex-1 break-all rounded-md border border-slate-800 bg-slate-950 p-2 font-mono text-[11px] text-emerald-200">
-                      {tokenData.enrollment_token}
-                    </code>
-                    <button type="button" className={btnSecondary} onClick={copyToken} aria-label="Copy token">
-                      {copied ? <Check size={14} /> : <Copy size={14} />}
-                    </button>
+            {isAdmin ? (
+              <section className="rounded-lg border border-slate-800 bg-slate-900/40 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-100">Endpoint enrollment</h3>
+                    <p className="mt-0.5 text-[11px] text-slate-500">
+                      Issue a one-time token, then run the agent enrollment command on the device.
+                    </p>
                   </div>
-                  <p className="mt-1.5 text-[10px] text-emerald-300/70">
-                    Expires {formatDateTime(tokenData.expires_at)}. It is shown once and is not stored in
-                    plaintext.
-                  </p>
-                  <pre className="mt-2 overflow-x-auto rounded-md border border-slate-800 bg-slate-950 p-2 text-[10px] leading-relaxed text-slate-400">{`python -m agent enroll --token <TOKEN> --backend-url http://localhost:8000/api
-python -m agent run`}</pre>
+                  <button type="button" className={btnPrimary} onClick={handleToken} disabled={!canEnroll || tokenBusy}>
+                    {tokenBusy ? <Loader2 size={15} className="animate-spin" /> : <KeyRound size={15} />}
+                    Issue token
+                  </button>
                 </div>
-              ) : null}
-            </section>
+                {!canEnroll ? (
+                  <p className="mt-2 text-[11px] leading-relaxed text-amber-300/90">
+                    The user must be active, not restricted and have ALLOWED consent before a device can
+                    be enrolled.
+                  </p>
+                ) : null}
+                {tokenError ? <p className="mt-2 text-xs text-red-300">{tokenError}</p> : null}
+                {tokenData ? (
+                  <div className="mt-3 rounded-lg border border-emerald-900/50 bg-emerald-950/20 p-3">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-300">One-time enrollment token</p>
+                    <div className="mt-1.5 flex items-start gap-2">
+                      <code className="min-w-0 flex-1 break-all rounded-md border border-slate-800 bg-slate-950 p-2 font-mono text-[11px] text-emerald-200">
+                        {tokenData.enrollment_token}
+                      </code>
+                      <button type="button" className={btnSecondary} onClick={copyToken} aria-label="Copy token">
+                        {copied ? <Check size={14} /> : <Copy size={14} />}
+                      </button>
+                    </div>
+                    <p className="mt-1.5 text-[10px] text-emerald-300/70">
+                      Expires {formatDateTime(tokenData.expires_at)}. It is shown once and is not stored in
+                      plaintext.
+                    </p>
+                    <pre className="mt-2 overflow-x-auto rounded-md border border-slate-800 bg-slate-950 p-2 text-[10px] leading-relaxed text-slate-400">{`python -m agent enroll --token <TOKEN> --backend-url http://localhost:8000/api
+python -m agent run`}</pre>
+                  </div>
+                ) : null}
+              </section>
+            ) : null}
 
             <section>
               <h3 className="mb-2 text-sm font-bold text-slate-100">Devices ({devices.length})</h3>
@@ -524,7 +579,7 @@ python -m agent run`}</pre>
                         </div>
                         <div className="flex shrink-0 flex-col items-end gap-1.5">
                           <Badge tone={statusTone(device.status)}>{device.status}</Badge>
-                          {device.status === 'ACTIVE' ? (
+                          {device.status === 'ACTIVE' && isAdmin ? (
                             <button type="button" className={btnDanger} onClick={() => { setRevokeError(''); setRevokeTarget(device); }}>
                               Revoke
                             </button>
@@ -568,8 +623,10 @@ python -m agent run`}</pre>
           <div>
             <label className={labelClass} htmlFor="new-role">Application access role</label>
             <select id="new-role" className={selectClass} value={createForm.role} onChange={(event) => setCreateForm({ ...createForm, role: event.target.value })}>
-              <option value="USER">USER — monitored account</option>
-              <option value="ADMIN">ADMIN — SOC administrator</option>
+              <option value="USER">USER — monitored employee account</option>
+              <option value="EDITOR">EDITOR — SOC operator (operational triage)</option>
+              <option value="VISITOR">VISITOR — Demonstration viewer (read-only)</option>
+              <option value="ADMIN">ADMIN — Full SOC administrator</option>
             </select>
           </div>
           <div>
@@ -615,6 +672,23 @@ python -m agent run`}</pre>
         error={revokeError}
         onClose={() => { if (!revokeBusy) { setRevokeTarget(null); setRevokeError(''); } }}
         onConfirm={handleRevoke}
+      />
+
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        title={`Delete account ${deleteTarget?.user_id}?`}
+        message={
+          <span>
+            Are you sure you want to delete user <strong className="text-slate-200">{deleteTarget?.user_id}</strong>?
+            This will permanently remove the account from the directory.
+          </span>
+        }
+        confirmLabel="Delete User"
+        tone="danger"
+        busy={deleteBusy}
+        error={deleteError}
+        onClose={() => { if (!deleteBusy) { setDeleteTarget(null); setDeleteError(''); } }}
+        onConfirm={handleDeleteUser}
       />
     </div>
   );

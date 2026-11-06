@@ -29,15 +29,15 @@ const NAV_GROUPS = [
     items: [
       { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
       { name: 'Risk Posture', path: '/risk-posture', icon: Target },
-      { name: 'Live Activity', path: '/live-activity', icon: Activity },
+      { name: 'Live Activity', path: '/live-activity', icon: Activity, adminOnly: true },
     ],
   },
   {
     label: 'Identity & behaviour',
     items: [
-      { name: 'Users', path: '/users', icon: Users, adminOnly: true },
+      { name: 'Users', path: '/users', icon: Users },
       { name: 'UEBA', path: '/ueba', icon: BrainCircuit },
-      { name: 'Investigation', path: '/investigation', icon: Search, adminOnly: true },
+      { name: 'Investigation', path: '/investigation', icon: Search },
     ],
   },
   {
@@ -49,7 +49,7 @@ const NAV_GROUPS = [
     items: [
       { name: 'Alerts', path: '/alerts', icon: Bell },
       { name: 'Incidents', path: '/incidents', icon: ShieldAlert },
-      { name: 'Enforcement', path: '/enforcement', icon: Gavel, adminOnly: true },
+      { name: 'Enforcement', path: '/enforcement', icon: Gavel },
     ],
   },
   {
@@ -59,7 +59,7 @@ const NAV_GROUPS = [
 ];
 
 export default function DashboardLayout() {
-  const { user, isAdmin, logout, refreshUser } = useAuth();
+  const { user, isAdmin, isEditor, isVisitor, logout, refreshUser } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -278,7 +278,13 @@ export default function DashboardLayout() {
               {activeItem?.name || 'Security console'}
             </p>
             <p className="hidden text-[11px] text-slate-500 sm:block">
-              {isAdmin ? 'Administrator scope: all monitored users' : 'Your authorised data only'}
+              {isAdmin
+                ? 'Administrator scope: full control'
+                : isEditor
+                ? 'Editor scope: operational triage & directory'
+                : isVisitor
+                ? 'Visitor scope: demonstration viewer mode (read-only)'
+                : 'Your authorised data only'}
             </p>
           </div>
 
@@ -286,7 +292,13 @@ export default function DashboardLayout() {
             {user.enforcement_status === 'RESTRICTED' ? (
               <Badge tone="red">Account restricted</Badge>
             ) : null}
-            <Badge tone={isAdmin ? 'blue' : 'neutral'}>{user.role}</Badge>
+            {isVisitor ? (
+              <Badge tone="emerald" className="font-semibold">VISITOR</Badge>
+            ) : isEditor ? (
+              <Badge tone="purple" className="font-semibold">EDITOR</Badge>
+            ) : (
+              <Badge tone={isAdmin ? 'blue' : 'neutral'} className="font-semibold">{user.role}</Badge>
+            )}
             <Badge tone={consentTone(consentState)} className="hidden sm:inline-flex">
               {consentState.replace('_', ' ')}
             </Badge>

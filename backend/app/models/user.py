@@ -3,7 +3,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
-Role = Literal["ADMIN", "USER"]
+Role = Literal["ADMIN", "EDITOR", "VISITOR", "USER"]
 BusinessRole = Literal["GENERAL", "DEVELOPER", "HR", "FINANCE"]
 ConsentState = Literal["NOT_ASKED", "ALLOWED", "DECLINED", "REVOKED"]
 EnforcementStatus = Literal["ACTIVE", "RESTRICTED"]
@@ -83,3 +83,11 @@ class ConsentUpdate(BaseModel):
 
 class BusinessRoleUpdate(BaseModel):
     business_role: BusinessRole
+
+
+class UserUpdate(BaseModel):
+    display_name: Optional[str] = Field(default=None, max_length=120)
+    role: Optional[Role] = None
+    business_role: Optional[BusinessRole] = None
+    is_active: Optional[bool] = None
+    enforcement_status: Optional[EnforcementStatus] = None

@@ -60,7 +60,8 @@ function SignalCard({ label, value, weight }) {
 }
 
 export default function Alerts() {
-  const { isAdmin } = useAuth();
+  const { isAdmin, isEditor, isVisitor } = useAuth();
+  const canTriage = isAdmin || isEditor;
 
   const [alerts, setAlerts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -101,7 +102,7 @@ export default function Alerts() {
           severity: severity || undefined,
           status: status || undefined,
           q: appliedQuery || undefined,
-          user_id: isAdmin ? appliedUserId || undefined : undefined,
+          user_id: (isAdmin || isEditor || isVisitor) ? appliedUserId || undefined : undefined,
         });
         setAlerts(Array.isArray(result) ? result : []);
       } catch (err) {
@@ -111,7 +112,7 @@ export default function Alerts() {
         setRefreshing(false);
       }
     },
-    [skip, severity, status, appliedQuery, appliedUserId, isAdmin],
+    [skip, severity, status, appliedQuery, appliedUserId, isAdmin, isEditor, isVisitor],
   );
 
   useEffect(() => {
@@ -286,7 +287,7 @@ export default function Alerts() {
             <option value="">All statuses</option>
             {STATUSES.map((item) => <option key={item} value={item}>{item}</option>)}
           </select>
-          {isAdmin ? (
+          {(isAdmin || isEditor || isVisitor) ? (
             <input value={userId} onChange={(event) => setUserId(event.target.value)} placeholder="Filter by user ID" className={inputClass} />
           ) : <div className="hidden xl:block" />}
           <div className="flex items-center gap-2">
@@ -404,12 +405,12 @@ export default function Alerts() {
             {actionMessage ? <InlineNotice tone="success">{actionMessage}</InlineNotice> : null}
             {actionError ? <InlineNotice tone="danger">{actionError}</InlineNotice> : null}
 
-            {isAdmin ? (
+            {canTriage ? (
               <>
                 <section className="rounded-lg border border-slate-800 bg-slate-900/40 p-4">
                   <h3 className="text-sm font-bold text-slate-100">Triage</h3>
                   <p className="mt-0.5 text-[11px] text-slate-500">
-                    Only SOC administrators can change alert status or append notes. Every change is
+                    SOC operators can change alert status or append notes. Every change is
                     recorded in the audit trail.
                   </p>
                   <div className="mt-3 grid gap-2 sm:grid-cols-2">

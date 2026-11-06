@@ -237,3 +237,35 @@ async def test_system_endpoints_are_admin_only(client, db):
     assert logs.status_code == 200
     # Logging in as the admin is itself audited.
     assert any(entry["action"] == "auth.login" for entry in logs.json())
+
+
+@pytest.mark.asyncio
+async def test_editor_and_visitor_roles_and_live_activity_gating(client, db):
+    await create_user("demo-editor", role="EDITOR")
+    await create_user("demo-visitor", role="VISITOR")
+    await create_user("demo-admin", role="ADMIN")
+
+    editor = {"Authorization": f"Bearer {(await login(client, 'demo-editor'))['access_token']}"}
+    visitor = {"Authorization": f"Bearer {(await login(client, 'demo-visitor'))['access_token']}"}
+    admin = {"Authorization": f"Bearer {(await login(client, 'demo-admin'))['access_token']}"}
+
+    # 1. Live activity is strictly ADMIN only (Editor and Visitor get 403)
+    assert (await client.get("/api/events", headers=editor)).status_code == 403
+    assert (await client.get("/api/events", headers=visitor)).status_code == 403
+    assert (await client.get("/api/events", headers=admin)).status_code == 200
+
+    # 2. Users directory is visible to all SOC roles, with Visitor getting masked email
+    editor_users = await client.get("/api/users", headers=editor)
+    assert editor_users.status_code == 200
+
+    visitor_users = await client.get("/api/users", headers=visitor)
+    assert visitor_users.status_code == 200
+    # Verify visitor email masking
+    for u in visitor_users.json():
+        if u.get("email"):
+            assert "***" in u["email"]
+
+    # 3. Only ADMIN can delete users (Editor and Visitor get 403)
+    assert (await client.delete("/api/users/demo-visitor", headers=visitor)).status_code == 403
+    assert (await client.delete("/api/users/demo-visitor", headers=editor)).status_code == 403
+    assert (await client.delete("/api/users/demo-visitor", headers=admin)).status_code == 200

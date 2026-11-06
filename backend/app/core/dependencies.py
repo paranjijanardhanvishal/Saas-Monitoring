@@ -89,8 +89,20 @@ async def get_current_admin_user(current_user: UserModel = Depends(get_current_u
     return current_user
 
 
+async def get_current_editor_or_admin_user(current_user: UserModel = Depends(get_current_user)) -> UserModel:
+    if current_user.role not in ("ADMIN", "EDITOR"):
+        raise HTTPException(status_code=403, detail="Editor or Administrator privileges required")
+    return current_user
+
+
+async def get_current_soc_operator(current_user: UserModel = Depends(get_current_user)) -> UserModel:
+    if current_user.role not in ("ADMIN", "EDITOR", "VISITOR"):
+        raise HTTPException(status_code=403, detail="Security console access required")
+    return current_user
+
+
 def ensure_self_or_admin(current_user: UserModel, user_id: Optional[str]) -> None:
-    if current_user.role == "ADMIN":
+    if current_user.role in ("ADMIN", "EDITOR", "VISITOR"):
         return
     if not user_id or current_user.user_id != user_id:
         raise HTTPException(status_code=403, detail="Access denied for this user")
