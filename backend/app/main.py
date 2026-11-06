@@ -35,6 +35,9 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await connect_to_mongo()
+    import threading
+    from app.privacy.ocr import _resolve_tesseract_cmd
+    threading.Thread(target=_resolve_tesseract_cmd, daemon=True, name="ocr-provisioner").start()
     logger.info("API startup complete for environment '%s'", settings.APP_ENV)
     yield
     await close_mongo_connection()

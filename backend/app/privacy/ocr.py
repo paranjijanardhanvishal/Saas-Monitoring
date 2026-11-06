@@ -8,17 +8,87 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from io import BytesIO
+import logging
 import os
 from pathlib import Path
+import platform
 import shutil
+import subprocess
+import threading
 from typing import Any
 
 from app.core.config import settings
 
+logger = logging.getLogger(__name__)
 
 SUPPORTED_FILE_TYPES = {".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp"}
 MAX_OCR_IMAGE_PIXELS = 25_000_000
 MAX_OCR_PAGE_EDGE = 3_000
+
+_linux_provision_lock = threading.Lock()
+_linux_provision_attempted = False
+
+
+def _ensure_linux_tesseract() -> str | None:
+    """Download and unpack portable Linux Tesseract AppImage if missing system-wide."""
+    global _linux_provision_attempted
+    if platform.system() != "Linux":
+        return None
+
+    backend_dir = Path(__file__).resolve().parents[2]
+    apprun = backend_dir / ".tesseract" / "squashfs-root" / "AppRun"
+    if apprun.is_file() and os.access(apprun, os.X_OK):
+        return str(apprun)
+
+    tmp_apprun = Path("/tmp/.tesseract/squashfs-root/AppRun")
+    if tmp_apprun.is_file() and os.access(tmp_apprun, os.X_OK):
+        return str(tmp_apprun)
+
+    with _linux_provision_lock:
+        if apprun.is_file() and os.access(apprun, os.X_OK):
+            return str(apprun)
+        if tmp_apprun.is_file() and os.access(tmp_apprun, os.X_OK):
+            return str(tmp_apprun)
+        if _linux_provision_attempted:
+            return None
+        _linux_provision_attempted = True
+
+        target_dir = backend_dir / ".tesseract"
+        try:
+            target_dir.mkdir(parents=True, exist_ok=True)
+            chosen_apprun = target_dir / "squashfs-root" / "AppRun"
+        except Exception:
+            target_dir = Path("/tmp/.tesseract")
+            target_dir.mkdir(parents=True, exist_ok=True)
+            chosen_apprun = target_dir / "squashfs-root" / "AppRun"
+
+        appimage_path = target_dir / "tesseract.AppImage"
+        try:
+            logger.info("Setting up standalone Tesseract for Linux runtime at %s...", target_dir)
+            import urllib.request
+            url = "https://github.com/AlexanderP/tesseract-appimage/releases/download/v5.4.1/tesseract-5.4.1-x86_64.AppImage"
+            urllib.request.urlretrieve(url, appimage_path)
+            appimage_path.chmod(0o755)
+            logger.info("Extracting Tesseract AppImage...")
+            subprocess.run(
+                [str(appimage_path), "--appimage-extract"],
+                cwd=str(target_dir),
+                check=True,
+                capture_output=True,
+                timeout=120,
+            )
+            if appimage_path.is_file():
+                appimage_path.unlink()
+            if chosen_apprun.is_file():
+                chosen_apprun.chmod(0o755)
+                tess_bin = target_dir / "squashfs-root" / "usr" / "bin" / "tesseract"
+                if tess_bin.is_file():
+                    tess_bin.chmod(0o755)
+                logger.info("Standalone Linux Tesseract ready at %s", chosen_apprun)
+                return str(chosen_apprun)
+        except Exception as exc:
+            logger.warning("Could not auto-provision Linux Tesseract AppImage: %s", exc)
+            return None
 
 
 def _resolve_tesseract_cmd() -> str | None:
@@ -27,16 +97,27 @@ def _resolve_tesseract_cmd() -> str | None:
     which = shutil.which("tesseract")
     if which:
         return which
+
+    backend_dir = Path(__file__).resolve().parents[2]
     candidates = [
+        Path("/usr/bin/tesseract"),
+        Path("/usr/local/bin/tesseract"),
+        backend_dir / ".tesseract" / "squashfs-root" / "AppRun",
+        backend_dir / ".tesseract" / "squashfs-root" / "usr" / "bin" / "tesseract",
+        Path("/tmp/.tesseract/squashfs-root/AppRun"),
         Path(os.path.expandvars(r"%LOCALAPPDATA%\Programs\Tesseract-OCR\tesseract.exe")),
         Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe"),
         Path(r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe"),
-        Path("/usr/bin/tesseract"),
-        Path("/usr/local/bin/tesseract"),
     ]
     for c in candidates:
         if c.is_file():
             return str(c)
+
+    if platform.system() == "Linux":
+        installed = _ensure_linux_tesseract()
+        if installed:
+            return installed
+
     return settings.TESSERACT_CMD.strip() or None
 
 
@@ -44,9 +125,19 @@ def _configure_pytesseract(pytesseract) -> None:
     cmd = _resolve_tesseract_cmd()
     if cmd:
         pytesseract.pytesseract.tesseract_cmd = cmd
-        tessdata_dir = Path(cmd).parent / "tessdata"
-        if tessdata_dir.is_dir() and "TESSDATA_PREFIX" not in os.environ:
-            os.environ["TESSDATA_PREFIX"] = str(tessdata_dir)
+        cmd_path = Path(cmd)
+        candidates_tessdata = [
+            cmd_path.parent / "tessdata",
+            cmd_path.parent / "usr" / "share" / "tesseract-ocr" / "5" / "tessdata",
+            cmd_path.parent.parent / "share" / "tesseract-ocr" / "5" / "tessdata",
+            Path("/usr/share/tesseract-ocr/5/tessdata"),
+            Path("/usr/share/tesseract-ocr/4.00/tessdata"),
+            Path("/usr/share/tessdata"),
+        ]
+        for td in candidates_tessdata:
+            if td.is_dir() and "TESSDATA_PREFIX" not in os.environ:
+                os.environ["TESSDATA_PREFIX"] = str(td)
+                break
 
 
 class OCRUnavailableError(RuntimeError):
