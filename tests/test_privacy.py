@@ -208,3 +208,116 @@ async def test_ocr_scan_end_to_end_with_pii_and_risk(client, db):
     assert event["event_type"] == "privacy.file_scanned"
     assert event["metadata"]["scan_source"] == "ocr_upload"
 
+
+@pytest.mark.asyncio
+async def test_text_based_pdf_scan(client, db):
+    import fitz
+
+    await create_user("pdf-text-user")
+    token = (await login(client, "pdf-text-user"))["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((50, 50), "Jane Doe Resume\nEmail: jane.resume@company.org\nSSN: 123-45-6789")
+    pdf_bytes = doc.tobytes()
+    doc.close()
+
+    files = {"upload": ("candidate_resume.pdf", pdf_bytes, "application/pdf")}
+    response = await client.post("/api/privacy/scan-ocr", files=files, headers=headers)
+    assert response.status_code == 201, response.text
+    data = response.json()
+
+    assert data["finding"]["file_type"] == "pdf"
+    assert data["finding"]["page_count"] == 1
+    assert data["finding"]["sensitivity_score"] > 0
+    entities = [e["entity_type"] for e in data["finding"]["entities"]]
+    assert "US_SSN" in entities or "EMAIL_ADDRESS" in entities
+
+    # Zero raw text storage
+    stored = await db.pii_findings.find_one({"finding_id": data["finding"]["finding_id"]})
+    assert "jane.resume@company.org" not in str(stored)
+    assert "123-45-6789" not in str(stored)
+
+
+@pytest.mark.asyncio
+async def test_scanned_image_only_pdf_scan(client, db):
+    import io
+    import fitz
+    from PIL import Image, ImageDraw
+
+    await create_user("pdf-scanned-user")
+    token = (await login(client, "pdf-scanned-user"))["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    img = Image.new("RGB", (600, 150), color=(255, 255, 255))
+    draw = ImageDraw.Draw(img)
+    draw.text((20, 50), "SCANNED INVOICE ID 123-45-6789 vendor@audit.test", fill=(0, 0, 0))
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_image(page.rect, stream=buf.getvalue())
+    pdf_bytes = doc.tobytes()
+    doc.close()
+
+    files = {"upload": ("scanned_invoice.pdf", pdf_bytes, "application/pdf")}
+    response = await client.post("/api/privacy/scan-ocr", files=files, headers=headers)
+    assert response.status_code == 201, response.text
+    data = response.json()
+
+    assert data["finding"]["file_type"] == "pdf"
+    assert data["finding"]["page_count"] == 1
+    assert data["finding"]["sensitivity_score"] > 0
+
+
+@pytest.mark.asyncio
+async def test_mixed_pdf_scan(client, db):
+    import io
+    import fitz
+    from PIL import Image, ImageDraw
+
+    await create_user("pdf-mixed-user")
+    token = (await login(client, "pdf-mixed-user"))["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    img = Image.new("RGB", (600, 150), color=(255, 255, 255))
+    draw = ImageDraw.Draw(img)
+    draw.text((20, 50), "SCANNED ATTACHMENT SSN 123-45-6789", fill=(0, 0, 0))
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+
+    doc = fitz.open()
+    # Page 1: Native text
+    p1 = doc.new_page()
+    p1.insert_text((50, 50), "Page 1: Digital Cover Letter\nContact: hiring.lead@corp.net")
+    # Page 2: Scanned image
+    p2 = doc.new_page()
+    p2.insert_image(p2.rect, stream=buf.getvalue())
+    pdf_bytes = doc.tobytes()
+    doc.close()
+
+    files = {"upload": ("mixed_application.pdf", pdf_bytes, "application/pdf")}
+    response = await client.post("/api/privacy/scan-ocr", files=files, headers=headers)
+    assert response.status_code == 201, response.text
+    data = response.json()
+
+    assert data["finding"]["file_type"] == "pdf"
+    assert data["finding"]["page_count"] == 2
+    assert data["finding"]["sensitivity_score"] > 0
+
+
+@pytest.mark.asyncio
+async def test_corrupted_pdf_rejected(client, db):
+    await create_user("pdf-corrupt-user")
+    token = (await login(client, "pdf-corrupt-user"))["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    corrupted_bytes = b"%PDF-1.4\nthis is invalid corrupted binary content\n%%EOF"
+    files = {"upload": ("broken.pdf", corrupted_bytes, "application/pdf")}
+    response = await client.post("/api/privacy/scan-ocr", files=files, headers=headers)
+    assert response.status_code == 422
+    assert "corrupted" in response.json()["detail"].lower()
+
+

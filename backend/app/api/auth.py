@@ -21,6 +21,7 @@ from app.database.mongodb import get_database
 from app.models.user import (
     ConsentUpdate,
     ForgotPasswordRequest,
+    PublicSignupRequest,
     ResetPasswordRequest,
     Token,
     UserCreate,
@@ -107,6 +108,98 @@ async def register(user: UserCreate, current_admin=Depends(get_current_admin_use
     return UserResponse(**user_model.model_dump())
 
 
+@router.post("/signup", response_model=Token, status_code=status.HTTP_201_CREATED)
+async def signup(
+    payload: PublicSignupRequest,
+    request: Request,
+    response: Response,
+):
+    """Public self-registration endpoint for new users.
+
+    Accepts any valid email address domain (@user.com, @visitor.com, @admin.com, @gmail.com, etc.),
+    validates that passwords match, hashes the password, and provisions an active USER account.
+    Immediately issues a session cookie and JWT access token.
+    """
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database not connected")
+
+    if payload.password != payload.confirm_password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Passwords do not match.",
+        )
+
+    try:
+        validate_password_strength(payload.password)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+    email = str(payload.email).strip().lower()
+
+    # Check if email is already registered
+    existing_user_by_email = await db.users.find_one({"email": email})
+    if existing_user_by_email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="An account with this email address already exists. Please sign in.",
+        )
+
+    # Derive unique user_id
+    raw_prefix = email.split("@")[0].lower()
+    clean_prefix = "".join(c for c in raw_prefix if c.isalnum() or c in ("-", "_", "."))
+    if len(clean_prefix) < 2:
+        clean_prefix = "user"
+
+    candidate_id = clean_prefix
+    if await db.users.find_one({"user_id": candidate_id}):
+        candidate_id = f"{clean_prefix}_{secrets.token_hex(3)}"
+
+    hashed = get_password_hash(payload.password)
+    display_name = raw_prefix.replace(".", " ").replace("_", " ").title()
+
+    now = datetime.now(timezone.utc)
+    new_user = UserModel(
+        user_id=candidate_id,
+        email=email,
+        display_name=display_name,
+        role="USER",
+        business_role="GENERAL",
+        monitoring_enabled="NOT_ASKED",
+        hashed_password=hashed,
+        source="public_signup",
+        is_active=True,
+        enforcement_status="ACTIVE",
+        must_change_password=False,
+        created_at=now,
+        last_login_at=now,
+    )
+
+    await db.users.insert_one(new_user.model_dump())
+
+    client_ip = request.client.host if request.client else "unknown"
+    await record_audit(
+        db,
+        new_user.user_id,
+        new_user.role,
+        "auth.signup",
+        "user",
+        new_user.user_id,
+        "success",
+        client_ip=client_ip,
+        metadata={"email": email},
+    )
+
+    token = create_access_token(subject=new_user.user_id, role=new_user.role)
+    _set_auth_cookies(response, token, secrets.token_urlsafe(32))
+
+    return Token(
+        access_token=token,
+        token_type="bearer",
+        expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+    )
+
+
 @router.post("/login", response_model=Token)
 async def login(
     request: Request,
@@ -132,6 +225,12 @@ async def login(
         user_dict = await db.users.find_one({"user_id": username})
     if not user_dict and username.lower() == "admin@admin.com":
         user_dict = await db.users.find_one({"user_id": "admin"})
+    if not user_dict and username.lower() == "user@user.com":
+        user_dict = await db.users.find_one({"user_id": "user"})
+    if not user_dict and username.lower() == "editor@user.com":
+        user_dict = await db.users.find_one({"user_id": "editor"})
+    if not user_dict and username.lower() == "visitor@visitor.com":
+        user_dict = await db.users.find_one({"user_id": "visitor"})
     if not user_dict:
         login_limiter.record_failure(limiter_key)
         # Constant-ish response regardless of which factor failed.

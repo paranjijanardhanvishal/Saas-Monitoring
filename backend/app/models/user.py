@@ -12,7 +12,7 @@ EnforcementStatus = Literal["ACTIVE", "RESTRICTED"]
 class UserCreate(BaseModel):
     user_id: str = Field(min_length=2, max_length=64)
     email: EmailStr
-    password: str = Field(min_length=12, max_length=72)
+    password: str = Field(min_length=6, max_length=72)
     display_name: Optional[str] = Field(default=None, max_length=120)
     role: Role = "USER"
     business_role: BusinessRole = "GENERAL"
@@ -99,4 +99,11 @@ class ForgotPasswordRequest(BaseModel):
 
 class ResetPasswordRequest(BaseModel):
     token: str = Field(min_length=16, max_length=128)
-    new_password: str = Field(min_length=12, max_length=72)
+    new_password: str = Field(min_length=6, max_length=72)
+
+
+class PublicSignupRequest(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=6, max_length=72)
+    confirm_password: str = Field(min_length=6, max_length=72)
+

@@ -125,6 +125,18 @@ export async function login(identifier, password) {
   return data;
 }
 
+export async function signup({ email, password, confirmPassword }) {
+  const data = await post('/auth/signup', {
+    email: email.trim(),
+    password,
+    confirm_password: confirmPassword,
+  });
+  if (data?.access_token) {
+    setAuthToken(data.access_token);
+  }
+  return data;
+}
+
 export async function logout() {
   setAuthToken(null);
   return post('/auth/logout', {});

@@ -50,11 +50,11 @@ def _password_bytes(password: str) -> bytes:
 
 def validate_password_strength(password: str) -> None:
     """Raise ValueError when a password does not meet the minimum policy."""
-    if not isinstance(password, str) or len(password) < 12:
-        raise ValueError("Password must be at least 12 characters long.")
+    if not isinstance(password, str) or len(password) < 6:
+        raise ValueError("Password must be at least 6 characters long.")
     if len(password.encode("utf-8")) > BCRYPT_MAX_BYTES:
         raise ValueError("Password must be at most 72 bytes when UTF-8 encoded.")
-    if password.lower() in {"password1234", "administrator", "changeme1234"}:
+    if password.lower() in {"password1234", "changeme1234"}:
         raise ValueError("Password is too common.")
 
 

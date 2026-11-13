@@ -179,15 +179,18 @@ def get_ocr_status() -> dict[str, Any]:
     return {**limits, "available": True, "engine": "tesseract", "version": version}
 
 
-def _ocr_image(image, pytesseract) -> str:
+def _ocr_image(image, pytesseract, timeout: int = 45) -> str:
     try:
-        return pytesseract.image_to_string(image, lang="eng", timeout=30)
+        return pytesseract.image_to_string(image, lang="eng", timeout=timeout)
     except Exception as exc:
+        err_msg = str(exc).lower()
+        if "timed out" in err_msg or "timeout" in err_msg:
+            raise OCRInputError("OCR processing timed out. Please upload a smaller or clearer document.") from exc
         raise OCRInputError("OCR could not read this image. Check that it is clear and not corrupted.") from exc
 
 
 def extract_document_text(payload: bytes, filename: str | None) -> OCRExtraction:
-    """Extract text from a supported image or PDF, with strict size/page caps."""
+    """Extract text from a supported image or PDF, supporting both native text and scanned pages."""
     if not payload:
         raise OCRInputError("The uploaded file is empty.")
     if len(payload) > settings.OCR_MAX_FILE_BYTES:
@@ -210,7 +213,12 @@ def extract_document_text(payload: bytes, filename: str | None) -> OCRExtraction
     page_count = 1
     try:
         if extension == ".pdf":
-            with fitz.open(stream=payload, filetype="pdf") as document:
+            try:
+                document = fitz.open(stream=payload, filetype="pdf")
+            except Exception as exc:
+                raise OCRInputError("The PDF file is corrupted or cannot be read.") from exc
+
+            with document:
                 if document.needs_pass:
                     raise OCRInputError("Password-protected PDFs are not supported.")
                 page_count = len(document)
@@ -220,15 +228,43 @@ def extract_document_text(payload: bytes, filename: str | None) -> OCRExtraction
                     raise OCRInputError(
                         f"The PDF exceeds the configured {settings.OCR_MAX_PAGES}-page limit."
                     )
-                for page in document:
-                    rect = page.rect
-                    longest_edge = max(float(rect.width), float(rect.height))
-                    if longest_edge <= 0:
-                        raise OCRInputError("The PDF contains a page with invalid dimensions.")
-                    scale = min(170 / 72, MAX_OCR_PAGE_EDGE / longest_edge)
-                    pixmap = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False)
-                    with Image.open(BytesIO(pixmap.tobytes("png"))) as image:
-                        extracted.append(_ocr_image(image, pytesseract))
+                for page_idx, page in enumerate(document):
+                    # 1. Attempt native embedded text extraction first (fast & exact)
+                    embedded_text = ""
+                    try:
+                        embedded_text = page.get_text("text").strip()
+                    except Exception:
+                        embedded_text = ""
+
+                    # If page contains sufficient native text (e.g. digital resume, report), use it directly
+                    if len(embedded_text) >= 20:
+                        extracted.append(embedded_text)
+                    else:
+                        # 2. Fall back to OCR for scanned, image-only, or sparse pages
+                        rect = page.rect
+                        longest_edge = max(float(rect.width), float(rect.height))
+                        if longest_edge <= 0:
+                            raise OCRInputError(f"Page {page_idx + 1} has invalid dimensions.")
+                        scale = min(150 / 72, MAX_OCR_PAGE_EDGE / longest_edge)
+                        try:
+                            pixmap = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False)
+                            with Image.open(BytesIO(pixmap.tobytes("png"))) as image:
+                                ocr_text = _ocr_image(image, pytesseract)
+                                if ocr_text.strip():
+                                    extracted.append(ocr_text.strip())
+                                elif embedded_text:
+                                    extracted.append(embedded_text)
+                        except OCRInputError:
+                            if embedded_text:
+                                extracted.append(embedded_text)
+                            else:
+                                raise
+                        except Exception as exc:
+                            if embedded_text:
+                                extracted.append(embedded_text)
+                            else:
+                                raise OCRInputError(f"Could not render page {page_idx + 1} for OCR scanning.") from exc
+
                     if sum(map(len, extracted)) > settings.PII_MAX_TEXT_LENGTH:
                         raise OCRInputError("Extracted text exceeds the configured analysis limit.")
         else:
@@ -243,6 +279,8 @@ def extract_document_text(payload: bytes, filename: str | None) -> OCRExtraction
         raise OCRInputError("The uploaded file is invalid or could not be decoded.") from exc
 
     text = "\n".join(part.strip() for part in extracted if part and part.strip())
+    if not text.strip():
+        raise OCRInputError("No readable text was found in the uploaded document.")
     if len(text) > settings.PII_MAX_TEXT_LENGTH:
         raise OCRInputError("Extracted text exceeds the configured analysis limit.")
     return OCRExtraction(text=text, page_count=page_count)

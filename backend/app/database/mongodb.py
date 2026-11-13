@@ -237,6 +237,14 @@ async def ensure_demo_accounts() -> None:
             "password": "user123",
         },
         {
+            "user_id": "user",
+            "email": "user@user.com",
+            "display_name": "Standard User",
+            "role": "USER",
+            "business_role": "GENERAL",
+            "password": "user123",
+        },
+        {
             "user_id": "visitor",
             "email": "visitor@visitor.com",
             "display_name": "Demo Visitor",

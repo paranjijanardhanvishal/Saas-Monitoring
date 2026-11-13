@@ -5,6 +5,7 @@ import {
   getMe,
   login as apiLogin,
   logout as apiLogout,
+  signup as apiSignup,
   updateConsent as apiUpdateConsent,
 } from '../api';
 
@@ -59,6 +60,14 @@ export function AuthProvider({ children }) {
     return current;
   }, []);
 
+  const signup = useCallback(async (email, password, confirmPassword) => {
+    await apiSignup({ email, password, confirmPassword });
+    const current = await getMe();
+    setUser(current);
+    setSessionMessage('');
+    return current;
+  }, []);
+
   const logout = useCallback(async () => {
     try {
       await apiLogout();
@@ -94,11 +103,12 @@ export function AuthProvider({ children }) {
       canEdit: user?.role === 'ADMIN' || user?.role === 'EDITOR',
       consentRequired: user?.role === 'USER' && user?.monitoring_enabled === 'NOT_ASKED',
       login,
+      signup,
       logout,
       updateConsent,
       refreshUser,
     }),
-    [user, loading, sessionMessage, login, logout, updateConsent, refreshUser],
+    [user, loading, sessionMessage, login, signup, logout, updateConsent, refreshUser],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

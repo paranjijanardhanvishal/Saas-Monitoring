@@ -27,3 +27,4 @@ else
     ./squashfs-root/AppRun --version || true
     cd ..
 fi
+

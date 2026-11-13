@@ -6,12 +6,24 @@ import { errorMessage, forgotPassword } from '../api';
 import { btnPrimary, btnSecondary, inputClass, labelClass } from '../components/ui';
 
 export default function Login() {
-  const { login, user, loading, sessionMessage } = useAuth();
+  const { login, signup, user, loading, sessionMessage } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+
+  const [mode, setMode] = useState('signin'); // 'signin' | 'signup'
+
+  // Sign In state
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+
+  // Sign Up state
+  const [signupEmail, setSignupEmail] = useState('');
+  const [signupPassword, setSignupPassword] = useState('');
+  const [signupConfirmPassword, setSignupConfirmPassword] = useState('');
+  const [showSignupPassword, setShowSignupPassword] = useState(false);
+  const [showSignupConfirmPassword, setShowSignupConfirmPassword] = useState(false);
+
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
@@ -54,6 +66,28 @@ export default function Login() {
       navigate(destinationFor(account), { replace: true });
     } catch (err) {
       setError(errorMessage(err, 'Sign-in failed. Please check your credentials.'));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleSignupSubmit = async (event) => {
+    event.preventDefault();
+    setError('');
+    if (signupPassword !== signupConfirmPassword) {
+      setError('Passwords do not match. Please re-enter your password.');
+      return;
+    }
+    if (signupPassword.length < 6) {
+      setError('Password must be at least 6 characters long.');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const account = await signup(signupEmail, signupPassword, signupConfirmPassword);
+      navigate(destinationFor(account), { replace: true });
+    } catch (err) {
+      setError(errorMessage(err, 'Sign-up failed. Please verify your details.'));
     } finally {
       setSubmitting(false);
     }
@@ -135,13 +169,48 @@ export default function Login() {
             </Link>
           </div>
 
+          <div className="mb-6 flex rounded-lg border border-slate-800 bg-slate-900/60 p-1">
+            <button
+              type="button"
+              onClick={() => {
+                setMode('signin');
+                setError('');
+              }}
+              className={`flex-1 rounded-md py-2 text-xs font-semibold transition ${
+                mode === 'signin'
+                  ? 'bg-blue-600 text-white shadow'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              Sign In
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setMode('signup');
+                setError('');
+              }}
+              className={`flex-1 rounded-md py-2 text-xs font-semibold transition ${
+                mode === 'signup'
+                  ? 'bg-blue-600 text-white shadow'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              Sign Up (New User)
+            </button>
+          </div>
+
           <div className="mb-7">
             <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-blue-400">
-              Secure sign-in
+              {mode === 'signin' ? 'Secure sign-in' : 'New User Registration'}
             </p>
-            <h2 className="mt-1 text-2xl font-bold text-white">Access the SOC console</h2>
+            <h2 className="mt-1 text-2xl font-bold text-white">
+              {mode === 'signin' ? 'Access the SOC console' : 'Create your account'}
+            </h2>
             <p className="mt-1 text-sm text-slate-500">
-              Use the email address or user ID assigned by your administrator.
+              {mode === 'signin'
+                ? 'Sign in with your email address or user ID (all email domains supported).'
+                : 'Enter your email, password, and confirm password to sign up.'}
             </p>
           </div>
 
@@ -160,90 +229,222 @@ export default function Login() {
             </div>
           ) : null}
 
-          <form onSubmit={handleSubmit} className="space-y-4" autoComplete="on">
-            <div>
-              <label htmlFor="identifier" className={labelClass}>
-                Email or user ID
-              </label>
-              <input
-                id="identifier"
-                name="username"
-                type="text"
-                autoComplete="username"
-                required
-                value={identifier}
-                onChange={(event) => setIdentifier(event.target.value)}
-                className={inputClass}
-                placeholder="analyst@example.com"
-                disabled={submitting}
-              />
-            </div>
-
-            <div>
-              <div className="flex items-center justify-between">
-                <label htmlFor="password" className={labelClass}>
-                  Password
+          {mode === 'signin' ? (
+            <form onSubmit={handleSubmit} className="space-y-4" autoComplete="on">
+              <div>
+                <label htmlFor="identifier" className={labelClass}>
+                  Email or user ID
                 </label>
+                <input
+                  id="identifier"
+                  name="username"
+                  type="text"
+                  autoComplete="username"
+                  required
+                  value={identifier}
+                  onChange={(event) => setIdentifier(event.target.value)}
+                  className={inputClass}
+                  placeholder="user@user.com or admin@admin.com"
+                  disabled={submitting}
+                />
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between">
+                  <label htmlFor="password" className={labelClass}>
+                    Password
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setForgotOpen(true);
+                      setForgotEmail(identifier.includes('@') ? identifier : '');
+                      setForgotMessage('');
+                      setForgotError('');
+                      setDevResetLink('');
+                    }}
+                    className="mb-1 text-[11px] font-semibold text-blue-400 hover:text-blue-300"
+                  >
+                    Forgot password?
+                  </button>
+                </div>
+                <div className="relative">
+                  <input
+                    id="password"
+                    name="password"
+                    type={showPassword ? 'text' : 'password'}
+                    autoComplete="current-password"
+                    required
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    className={`${inputClass} pr-11`}
+                    placeholder="Enter your password"
+                    disabled={submitting}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((visible) => !visible)}
+                    className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-md p-2 text-slate-500 hover:bg-slate-800 hover:text-slate-300"
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  >
+                    {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                  </button>
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={submitting}
+                className="mt-2 w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <span className="inline-flex items-center justify-center gap-2">
+                  {submitting ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" />
+                      Signing in…
+                    </>
+                  ) : (
+                    <>
+                      Sign in
+                      <ArrowRight size={16} />
+                    </>
+                  )}
+                </span>
+              </button>
+
+              <div className="pt-2 text-center text-xs text-slate-400">
+                New user?{' '}
                 <button
                   type="button"
                   onClick={() => {
-                    setForgotOpen(true);
-                    setForgotEmail(identifier.includes('@') ? identifier : '');
-                    setForgotMessage('');
-                    setForgotError('');
-                    setDevResetLink('');
+                    setMode('signup');
+                    setError('');
                   }}
-                  className="mb-1 text-[11px] font-semibold text-blue-400 hover:text-blue-300"
+                  className="font-semibold text-blue-400 hover:text-blue-300"
                 >
-                  Forgot password?
+                  Create an account
                 </button>
               </div>
-              <div className="relative">
+            </form>
+          ) : (
+            <form onSubmit={handleSignupSubmit} className="space-y-4" autoComplete="on">
+              <div>
+                <label htmlFor="signup-email" className={labelClass}>
+                  Enter your email
+                </label>
                 <input
-                  id="password"
-                  name="password"
-                  type={showPassword ? 'text' : 'password'}
-                  autoComplete="current-password"
+                  id="signup-email"
+                  name="email"
+                  type="email"
+                  autoComplete="email"
                   required
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  className={`${inputClass} pr-11`}
-                  placeholder="Enter your password"
+                  value={signupEmail}
+                  onChange={(event) => setSignupEmail(event.target.value)}
+                  className={inputClass}
+                  placeholder="user@user.com or you@example.com"
                   disabled={submitting}
                 />
+                <p className="mt-1 text-[11px] text-slate-500">
+                  All email domains (@user.com, @visitor.com, @admin.com, etc.) are accepted.
+                </p>
+              </div>
+
+              <div>
+                <label htmlFor="signup-password" className={labelClass}>
+                  Password
+                </label>
+                <div className="relative">
+                  <input
+                    id="signup-password"
+                    name="password"
+                    type={showSignupPassword ? 'text' : 'password'}
+                    autoComplete="new-password"
+                    required
+                    value={signupPassword}
+                    onChange={(event) => setSignupPassword(event.target.value)}
+                    className={`${inputClass} pr-11`}
+                    placeholder="Enter password (min 6 characters)"
+                    disabled={submitting}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowSignupPassword((visible) => !visible)}
+                    className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-md p-2 text-slate-500 hover:bg-slate-800 hover:text-slate-300"
+                    aria-label={showSignupPassword ? 'Hide password' : 'Show password'}
+                  >
+                    {showSignupPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label htmlFor="signup-confirm-password" className={labelClass}>
+                  Re-enter password
+                </label>
+                <div className="relative">
+                  <input
+                    id="signup-confirm-password"
+                    name="confirm_password"
+                    type={showSignupConfirmPassword ? 'text' : 'password'}
+                    autoComplete="new-password"
+                    required
+                    value={signupConfirmPassword}
+                    onChange={(event) => setSignupConfirmPassword(event.target.value)}
+                    className={`${inputClass} pr-11`}
+                    placeholder="Confirm your password"
+                    disabled={submitting}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowSignupConfirmPassword((visible) => !visible)}
+                    className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-md p-2 text-slate-500 hover:bg-slate-800 hover:text-slate-300"
+                    aria-label={showSignupConfirmPassword ? 'Hide password' : 'Show password'}
+                  >
+                    {showSignupConfirmPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                  </button>
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={submitting}
+                className="mt-2 w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <span className="inline-flex items-center justify-center gap-2">
+                  {submitting ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" />
+                      Creating account…
+                    </>
+                  ) : (
+                    <>
+                      Sign up
+                      <ArrowRight size={16} />
+                    </>
+                  )}
+                </span>
+              </button>
+
+              <div className="pt-2 text-center text-xs text-slate-400">
+                Already have an account?{' '}
                 <button
                   type="button"
-                  onClick={() => setShowPassword((visible) => !visible)}
-                  className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-md p-2 text-slate-500 hover:bg-slate-800 hover:text-slate-300"
-                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  onClick={() => {
+                    setMode('signin');
+                    setError('');
+                  }}
+                  className="font-semibold text-blue-400 hover:text-blue-300"
                 >
-                  {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                  Sign in
                 </button>
               </div>
-            </div>
-
-            <button type="submit" disabled={submitting} className="mt-2 w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60">
-              <span className="inline-flex items-center justify-center gap-2">
-                {submitting ? (
-                  <>
-                    <Loader2 size={16} className="animate-spin" />
-                    Signing in…
-                  </>
-                ) : (
-                  <>
-                    Sign in
-                    <ArrowRight size={16} />
-                  </>
-                )}
-              </span>
-            </button>
-          </form>
+            </form>
+          )}
 
           <div className="mt-6 flex items-start gap-2 rounded-lg border border-slate-800 bg-slate-900/40 p-3 text-[11px] leading-relaxed text-slate-500">
             <LockKeyhole size={14} className="mt-0.5 shrink-0 text-slate-500" />
             <span>
-              Sessions use an HttpOnly cookie with CSRF protection. There is no public sign-up;
-              contact an administrator if you need an account.
+              Sessions use HttpOnly cookies with CSRF protection. Users with any email domain (@user.com, @visitor.com, @admin.com, etc.) can sign in or register above.
             </span>
           </div>
         </div>

@@ -284,3 +284,55 @@ async def test_forgot_and_reset_password_workflow(client, db):
         "/api/auth/login", data={"username": "reset-user", "password": "BrandNewSecurePassword123"}
     )
     assert new_login.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_public_signup_success_any_domain(client, db):
+    payload = {
+        "email": "fresh.researcher@anydomain.org",
+        "password": "validpassword123",
+        "confirm_password": "validpassword123",
+    }
+    response = await client.post("/api/auth/signup", json=payload)
+    assert response.status_code == 201, response.text
+    data = response.json()
+    assert "access_token" in data
+
+    # Verify user exists in database with USER role
+    user_doc = await db.users.find_one({"email": "fresh.researcher@anydomain.org"})
+    assert user_doc is not None
+    assert user_doc["role"] == "USER"
+    assert user_doc["business_role"] == "GENERAL"
+
+    # Verify token can access /me
+    me_resp = await client.get("/api/auth/me", headers={"Authorization": f"Bearer {data['access_token']}"})
+    assert me_resp.status_code == 200
+    assert me_resp.json()["email"] == "fresh.researcher@anydomain.org"
+
+
+@pytest.mark.asyncio
+async def test_public_signup_password_mismatch(client, db):
+    payload = {
+        "email": "mismatch@user.com",
+        "password": "validpassword123",
+        "confirm_password": "differentpassword",
+    }
+    response = await client.post("/api/auth/signup", json=payload)
+    assert response.status_code == 400
+    assert "passwords do not match" in response.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_public_signup_duplicate_email_rejected(client, db):
+    payload = {
+        "email": "duplicate@admin.com",
+        "password": "validpassword123",
+        "confirm_password": "validpassword123",
+    }
+    r1 = await client.post("/api/auth/signup", json=payload)
+    assert r1.status_code == 201
+
+    r2 = await client.post("/api/auth/signup", json=payload)
+    assert r2.status_code == 400
+    assert "already exists" in r2.json()["detail"].lower()
+
