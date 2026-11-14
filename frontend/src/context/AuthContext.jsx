@@ -16,6 +16,11 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
   const [sessionMessage, setSessionMessage] = useState('');
   const mounted = useRef(true);
+  const userRef = useRef(null);
+
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
 
   const bootstrap = useCallback(async () => {
     try {
@@ -24,13 +29,12 @@ export function AuthProvider({ children }) {
         setUser(current);
         setSessionMessage('');
       }
-    } catch (error) {
+    } catch {
       if (!mounted.current) return;
       setUser(null);
-      // A 401 here simply means there is no active session. Surface anything else.
-      if (error?.response?.status !== 401) {
-        setSessionMessage(errorMessage(error, 'Could not restore your session.'));
-      }
+      // Silently treat failure during initial bootstrap as no active session.
+      // An unauthenticated visitor opening the app should never see "session expired"
+      // or "backend did not respond in time" before attempting to log in.
     } finally {
       if (mounted.current) setLoading(false);
     }
@@ -42,8 +46,13 @@ export function AuthProvider({ children }) {
 
     const onExpired = () => {
       if (!mounted.current) return;
-      setUser(null);
-      setSessionMessage('Your session expired. Please sign in again.');
+      // Only show "Your session expired" if the user was previously authenticated
+      if (userRef.current) {
+        setUser(null);
+        setSessionMessage('Your session expired. Please sign in again.');
+      } else {
+        setUser(null);
+      }
     };
     window.addEventListener(AUTH_EXPIRED_EVENT, onExpired);
     return () => {
@@ -53,16 +62,17 @@ export function AuthProvider({ children }) {
   }, [bootstrap]);
 
   const login = useCallback(async (identifier, password) => {
-    await apiLogin(identifier.trim(), password);
-    const current = await getMe();
+    const data = await apiLogin(identifier.trim(), password);
+    // Use user returned in token response directly to avoid a redundant second network call
+    const current = data?.user || (await getMe());
     setUser(current);
     setSessionMessage('');
     return current;
   }, []);
 
   const signup = useCallback(async (email, password, confirmPassword) => {
-    await apiSignup({ email, password, confirmPassword });
-    const current = await getMe();
+    const data = await apiSignup({ email, password, confirmPassword });
+    const current = data?.user || (await getMe());
     setUser(current);
     setSessionMessage('');
     return current;
@@ -75,6 +85,7 @@ export function AuthProvider({ children }) {
       // The local session is cleared even if the server session already expired.
     } finally {
       setUser(null);
+      setSessionMessage('');
     }
   }, []);
 

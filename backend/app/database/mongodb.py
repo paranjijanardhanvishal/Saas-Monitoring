@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -34,6 +35,10 @@ async def connect_to_mongo() -> None:
         settings.MONGODB_URI,
         serverSelectionTimeoutMS=5000,
         connectTimeoutMS=5000,
+        minPoolSize=5,
+        maxPoolSize=50,
+        maxIdleTimeMS=45000,
+        waitQueueTimeoutMS=5000,
         # Return UTC-aware datetimes so API responses contain an explicit
         # timezone instead of ambiguous naive timestamps.
         tz_aware=True,
@@ -141,21 +146,27 @@ INDEX_DEFINITIONS: dict[str, list[IndexModel]] = {
 }
 
 
+async def _create_col_indexes(collection: str, indexes: list) -> None:
+    try:
+        await db_client.db[collection].create_indexes(indexes)
+    except (DuplicateKeyError, OperationFailure) as exc:
+        logger.warning("Could not create all indexes for %s: %s", collection, exc)
+    except Exception:
+        logger.exception("Unexpected failure creating indexes for %s", collection)
+
+
 async def ensure_indexes() -> None:
-    """Create query indexes idempotently.
+    """Create query indexes concurrently and idempotently.
 
     A duplicate value in an existing collection must not prevent the API from
     starting; the conflict is logged and the remaining indexes are created.
     """
     if db_client.db is None:
         return
-    for collection, indexes in INDEX_DEFINITIONS.items():
-        try:
-            await db_client.db[collection].create_indexes(indexes)
-        except (DuplicateKeyError, OperationFailure) as exc:
-            logger.warning("Could not create all indexes for %s: %s", collection, exc)
-        except Exception:
-            logger.exception("Unexpected failure creating indexes for %s", collection)
+    await asyncio.gather(
+        *[_create_col_indexes(col, idxs) for col, idxs in INDEX_DEFINITIONS.items()],
+        return_exceptions=True,
+    )
     logger.info("MongoDB index initialisation complete")
 
 
@@ -177,12 +188,11 @@ async def ensure_initial_admin() -> None:
             ]
         })
 
-        hashed = bcrypt.hashpw(
-            admin_password.encode("utf-8")[:72],
-            bcrypt.gensalt(rounds=12)
-        ).decode("ascii")
-
         if not existing_admin:
+            hashed = bcrypt.hashpw(
+                admin_password.encode("utf-8")[:72],
+                bcrypt.gensalt(rounds=12)
+            ).decode("ascii")
             now = datetime.now(timezone.utc)
             admin_doc = {
                 "user_id": admin_user_id,
@@ -203,6 +213,10 @@ async def ensure_initial_admin() -> None:
             await db_client.db.users.insert_one(admin_doc)
             logger.info("Auto-provisioned initial administrator '%s'", admin_email)
         elif getattr(settings, "AUTO_SYNC_ADMIN_CREDENTIALS", False):
+            hashed = bcrypt.hashpw(
+                admin_password.encode("utf-8")[:72],
+                bcrypt.gensalt(rounds=12)
+            ).decode("ascii")
             updates = {
                 "email": admin_email,
                 "role": "ADMIN",
@@ -260,8 +274,8 @@ async def ensure_demo_accounts() -> None:
             existing = await db_client.db.users.find_one({
                 "$or": [{"email": account["email"]}, {"user_id": account["user_id"]}]
             })
-            hashed = bcrypt.hashpw(account["password"].encode("utf-8")[:72], bcrypt.gensalt(rounds=12)).decode("ascii")
             if not existing:
+                hashed = bcrypt.hashpw(account["password"].encode("utf-8")[:72], bcrypt.gensalt(rounds=12)).decode("ascii")
                 doc = {
                     "user_id": account["user_id"],
                     "email": account["email"],
@@ -281,6 +295,7 @@ async def ensure_demo_accounts() -> None:
                 await db_client.db.users.insert_one(doc)
                 logger.info("Auto-provisioned demo account '%s' (%s)", account["email"], account["role"])
             elif getattr(settings, "AUTO_SYNC_ADMIN_CREDENTIALS", False):
+                hashed = bcrypt.hashpw(account["password"].encode("utf-8")[:72], bcrypt.gensalt(rounds=12)).decode("ascii")
                 await db_client.db.users.update_one(
                     {"_id": existing["_id"]},
                     {"$set": {"role": account["role"], "is_active": True, "hashed_password": hashed}}

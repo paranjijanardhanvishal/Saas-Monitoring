@@ -77,11 +77,11 @@ export function errorMessage(error, fallback = 'Request failed. Please try again
   if (detail && typeof detail === 'object' && typeof detail.message === 'string') {
     return detail.message;
   }
-  if (error?.code === 'ERR_NETWORK') {
-    return 'Cannot reach the backend API. Check that the server is running and the API URL is correct.';
+  if (error?.code === 'ECONNABORTED' || error?.response?.status === 504) {
+    return 'The backend server took too long to respond (cloud container cold start). Please click sign in again.';
   }
-  if (error?.code === 'ECONNABORTED') {
-    return 'The backend did not respond in time.';
+  if (error?.code === 'ERR_NETWORK') {
+    return 'Cannot reach the backend API. The cloud server may still be spinning up; please try again in a few seconds.';
   }
   return error?.message || fallback;
 }

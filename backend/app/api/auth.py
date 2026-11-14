@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import logging
 import secrets
@@ -197,6 +198,7 @@ async def signup(
         access_token=token,
         token_type="bearer",
         expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        user=UserResponse(**new_user.model_dump()),
     )
 
 
@@ -220,17 +222,23 @@ async def login(
         )
 
     username = form_data.username.strip()
-    user_dict = await db.users.find_one({"email": username.lower()})
-    if not user_dict:
-        user_dict = await db.users.find_one({"user_id": username})
-    if not user_dict and username.lower() == "admin@admin.com":
-        user_dict = await db.users.find_one({"user_id": "admin"})
-    if not user_dict and username.lower() == "user@user.com":
-        user_dict = await db.users.find_one({"user_id": "user"})
-    if not user_dict and username.lower() == "editor@user.com":
-        user_dict = await db.users.find_one({"user_id": "editor"})
-    if not user_dict and username.lower() == "visitor@visitor.com":
-        user_dict = await db.users.find_one({"user_id": "visitor"})
+    uname_lower = username.lower()
+    alias_map = {
+        "admin@admin.com": "admin",
+        "user@user.com": "user",
+        "editor@user.com": "editor",
+        "visitor@visitor.com": "visitor",
+    }
+    candidate_ids = [username]
+    if uname_lower in alias_map:
+        candidate_ids.append(alias_map[uname_lower])
+
+    user_dict = await db.users.find_one({
+        "$or": [
+            {"email": uname_lower},
+            {"user_id": {"$in": candidate_ids}},
+        ]
+    })
     if not user_dict:
         login_limiter.record_failure(limiter_key)
         # Constant-ish response regardless of which factor failed.
@@ -262,26 +270,29 @@ async def login(
 
     login_limiter.reset(limiter_key)
     now = datetime.now(timezone.utc)
-    await db.users.update_one({"user_id": user.user_id}, {"$set": {"last_login_at": now}})
-
     token = create_access_token(subject=user.user_id, role=user.role)
-    import secrets
-
     _set_auth_cookies(response, token, secrets.token_urlsafe(32))
-    await record_audit(
-        db,
-        user.user_id,
-        user.role,
-        "auth.login",
-        "user",
-        user.user_id,
-        "success",
-        client_ip=client_ip,
+
+    await asyncio.gather(
+        db.users.update_one({"user_id": user.user_id}, {"$set": {"last_login_at": now}}),
+        record_audit(
+            db,
+            user.user_id,
+            user.role,
+            "auth.login",
+            "user",
+            user.user_id,
+            "success",
+            client_ip=client_ip,
+        ),
+        return_exceptions=True,
     )
+
     return Token(
         access_token=token,
         token_type="bearer",
         expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        user=UserResponse(**user.model_dump()),
     )
 
 

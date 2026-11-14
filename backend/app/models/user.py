@@ -62,6 +62,7 @@ class Token(BaseModel):
     access_token: str
     token_type: str = "bearer"
     expires_in: int = 0
+    user: Optional[UserResponse] = None
 
 
 class TokenData(BaseModel):

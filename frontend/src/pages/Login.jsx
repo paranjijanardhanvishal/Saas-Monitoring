@@ -6,7 +6,7 @@ import { errorMessage, forgotPassword } from '../api';
 import { btnPrimary, btnSecondary, inputClass, labelClass } from '../components/ui';
 
 export default function Login() {
-  const { login, signup, user, loading, sessionMessage } = useAuth();
+  const { login, signup, user, loading, sessionMessage, clearSessionMessage } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -25,7 +25,20 @@ export default function Login() {
   const [showSignupConfirmPassword, setShowSignupConfirmPassword] = useState(false);
 
   const [submitting, setSubmitting] = useState(false);
+  const [coldStartProgress, setColdStartProgress] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    let timer;
+    if (submitting) {
+      timer = setTimeout(() => {
+        setColdStartProgress(true);
+      }, 4000);
+    } else {
+      setColdStartProgress(false);
+    }
+    return () => clearTimeout(timer);
+  }, [submitting]);
 
   const [forgotOpen, setForgotOpen] = useState(false);
   const [forgotEmail, setForgotEmail] = useState('');
@@ -59,7 +72,9 @@ export default function Login() {
 
   const handleSubmit = async (event) => {
     event.preventDefault();
+    if (submitting) return;
     setError('');
+    clearSessionMessage?.();
     setSubmitting(true);
     try {
       const account = await login(identifier, password);
@@ -73,7 +88,9 @@ export default function Login() {
 
   const handleSignupSubmit = async (event) => {
     event.preventDefault();
+    if (submitting) return;
     setError('');
+    clearSessionMessage?.();
     if (signupPassword !== signupConfirmPassword) {
       setError('Passwords do not match. Please re-enter your password.');
       return;
@@ -242,7 +259,11 @@ export default function Login() {
                   autoComplete="username"
                   required
                   value={identifier}
-                  onChange={(event) => setIdentifier(event.target.value)}
+                  onChange={(event) => {
+                    setIdentifier(event.target.value);
+                    clearSessionMessage?.();
+                    if (error) setError('');
+                  }}
                   className={inputClass}
                   placeholder="user@user.com or admin@admin.com"
                   disabled={submitting}
@@ -276,7 +297,11 @@ export default function Login() {
                     autoComplete="current-password"
                     required
                     value={password}
-                    onChange={(event) => setPassword(event.target.value)}
+                    onChange={(event) => {
+                      setPassword(event.target.value);
+                      clearSessionMessage?.();
+                      if (error) setError('');
+                    }}
                     className={`${inputClass} pr-11`}
                     placeholder="Enter your password"
                     disabled={submitting}
@@ -291,6 +316,13 @@ export default function Login() {
                   </button>
                 </div>
               </div>
+
+              {coldStartProgress ? (
+                <div className="flex items-center gap-2 rounded-lg border border-blue-500/30 bg-blue-500/10 p-2.5 text-xs text-blue-300">
+                  <Loader2 size={14} className="animate-spin text-blue-400 shrink-0" />
+                  <span>Connecting to backend (waking up cloud server instance, please wait)...</span>
+                </div>
+              ) : null}
 
               <button
                 type="submit"
@@ -339,7 +371,11 @@ export default function Login() {
                   autoComplete="email"
                   required
                   value={signupEmail}
-                  onChange={(event) => setSignupEmail(event.target.value)}
+                  onChange={(event) => {
+                    setSignupEmail(event.target.value);
+                    clearSessionMessage?.();
+                    if (error) setError('');
+                  }}
                   className={inputClass}
                   placeholder="user@user.com or you@example.com"
                   disabled={submitting}
@@ -361,7 +397,11 @@ export default function Login() {
                     autoComplete="new-password"
                     required
                     value={signupPassword}
-                    onChange={(event) => setSignupPassword(event.target.value)}
+                    onChange={(event) => {
+                      setSignupPassword(event.target.value);
+                      clearSessionMessage?.();
+                      if (error) setError('');
+                    }}
                     className={`${inputClass} pr-11`}
                     placeholder="Enter password (min 6 characters)"
                     disabled={submitting}
@@ -389,7 +429,11 @@ export default function Login() {
                     autoComplete="new-password"
                     required
                     value={signupConfirmPassword}
-                    onChange={(event) => setSignupConfirmPassword(event.target.value)}
+                    onChange={(event) => {
+                      setSignupConfirmPassword(event.target.value);
+                      clearSessionMessage?.();
+                      if (error) setError('');
+                    }}
                     className={`${inputClass} pr-11`}
                     placeholder="Confirm your password"
                     disabled={submitting}
@@ -404,6 +448,13 @@ export default function Login() {
                   </button>
                 </div>
               </div>
+
+              {coldStartProgress ? (
+                <div className="flex items-center gap-2 rounded-lg border border-blue-500/30 bg-blue-500/10 p-2.5 text-xs text-blue-300">
+                  <Loader2 size={14} className="animate-spin text-blue-400 shrink-0" />
+                  <span>Connecting to backend (waking up cloud server instance, please wait)...</span>
+                </div>
+              ) : null}
 
               <button
                 type="submit"
