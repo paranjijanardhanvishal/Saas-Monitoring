@@ -223,20 +223,10 @@ async def login(
 
     username = form_data.username.strip()
     uname_lower = username.lower()
-    alias_map = {
-        "admin@admin.com": "admin",
-        "user@user.com": "user",
-        "editor@user.com": "editor",
-        "visitor@visitor.com": "visitor",
-    }
-    candidate_ids = [username]
-    if uname_lower in alias_map:
-        candidate_ids.append(alias_map[uname_lower])
-
     user_dict = await db.users.find_one({
         "$or": [
             {"email": uname_lower},
-            {"user_id": {"$in": candidate_ids}},
+            {"user_id": username},
         ]
     })
     if not user_dict:

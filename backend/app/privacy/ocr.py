@@ -200,14 +200,24 @@ def extract_document_text(payload: bytes, filename: str | None) -> OCRExtraction
     if extension not in SUPPORTED_FILE_TYPES:
         raise OCRInputError("Choose a PDF, PNG, JPEG, TIFF, BMP or WebP file.")
 
-    status = get_ocr_status()
-    if not status.get("available"):
-        raise OCRUnavailableError(status["reason"])
-
     import fitz
-    import pytesseract
-    from PIL import Image
-    _configure_pytesseract(pytesseract)
+
+    def require_ocr():
+        """Load OCR dependencies only when an image must be read.
+
+        Digital PDFs can safely be analysed with embedded text even when the
+        optional local Tesseract executable is unavailable. Parsing occurs
+        first so corrupt PDFs return an input error rather than a misleading
+        service-unavailable response.
+        """
+        status = get_ocr_status()
+        if not status.get("available"):
+            raise OCRUnavailableError(status["reason"])
+        import pytesseract
+        from PIL import Image
+
+        _configure_pytesseract(pytesseract)
+        return pytesseract, Image
 
     extracted: list[str] = []
     page_count = 1
@@ -240,6 +250,7 @@ def extract_document_text(payload: bytes, filename: str | None) -> OCRExtraction
                     if len(embedded_text) >= 20:
                         extracted.append(embedded_text)
                     else:
+                        pytesseract, Image = require_ocr()
                         # 2. Fall back to OCR for scanned, image-only, or sparse pages
                         rect = page.rect
                         longest_edge = max(float(rect.width), float(rect.height))
@@ -268,6 +279,7 @@ def extract_document_text(payload: bytes, filename: str | None) -> OCRExtraction
                     if sum(map(len, extracted)) > settings.PII_MAX_TEXT_LENGTH:
                         raise OCRInputError("Extracted text exceeds the configured analysis limit.")
         else:
+            pytesseract, Image = require_ocr()
             with Image.open(BytesIO(payload)) as image:
                 if image.width * image.height > MAX_OCR_IMAGE_PIXELS:
                     raise OCRInputError("The image exceeds the configured pixel limit.")

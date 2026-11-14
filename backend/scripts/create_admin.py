@@ -39,26 +39,19 @@ def parse_args():
         action="store_true",
         help="Allow temporary password (min 8 chars) and flag account for forced password change",
     )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Check whether the selected account is an administrator without changing data",
+    )
     return parser.parse_args()
 
 
 async def main() -> int:
     args = parse_args()
-    if not args.email and not args.reset_password:
+    if not args.email and not args.reset_password and not args.check:
         print("An administrator email is required (--email or ADMIN_EMAIL).")
         return 2
-
-    password = os.getenv("ADMIN_PASSWORD") or getpass.getpass("Administrator password: ")
-    if args.temporary:
-        if len(password) < 8:
-            print("Temporary password must be at least 8 characters long.")
-            return 2
-    else:
-        try:
-            validate_password_strength(password)
-        except ValueError as exc:
-            print(str(exc))
-            return 2
 
     await connect_to_mongo()
     try:
@@ -73,6 +66,28 @@ async def main() -> int:
         if not existing_user and args.email:
             existing_user = await db.users.find_one({"email": args.email.lower()})
 
+        if args.check:
+            if existing_user and existing_user.get("role") == "ADMIN":
+                print("Administrator account exists.")
+                return 0
+            if existing_user:
+                print("A matching account exists but is not an administrator; no changes made.")
+                return 1
+            print("No matching administrator account exists.")
+            return 1
+
+        password = os.getenv("ADMIN_PASSWORD") or getpass.getpass("Administrator password: ")
+        if args.temporary:
+            if len(password) < 8:
+                print("Temporary password must be at least 8 characters long.")
+                return 2
+        else:
+            try:
+                validate_password_strength(password)
+            except ValueError as exc:
+                print(str(exc))
+                return 2
+
         if existing_user:
             if not args.reset_password:
                 print(
@@ -81,15 +96,20 @@ async def main() -> int:
                 )
                 return 1
 
+            if existing_user.get("role") != "ADMIN":
+                print("The matching account is not an administrator; no changes made.")
+                return 1
+
+            if args.email and str(existing_user.get("email") or "").lower() != args.email.lower():
+                print("The supplied email does not match the existing administrator; no changes made.")
+                return 1
+
             hashed = get_password_hash(password, validate=not args.temporary)
             update_fields = {
                 "hashed_password": hashed,
-                "role": "ADMIN",
                 "is_active": True,
                 "must_change_password": bool(args.temporary),
             }
-            if args.email:
-                update_fields["email"] = args.email.lower()
             if args.display_name:
                 update_fields["display_name"] = args.display_name
 

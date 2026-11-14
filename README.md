@@ -194,9 +194,10 @@ Main components:
 
 ### Authorization and tenant isolation
 
-- Roles are `ADMIN` and `USER`.
+- Roles are `ADMIN`, `EDITOR`, `VISITOR` and `USER`.
 - ADMIN-only operations include user administration, device administration,
-  investigation, enforcement, system health, audit logs and consent history.
+  synthetic demo controls, investigation, enforcement, system health, audit
+  logs and consent history.
 - USER requests are scoped server-side to their own `user_id` for dashboard,
   events, alerts, incidents, risk and privacy data. Supplying another user's ID
   does not widen the scope.
@@ -211,13 +212,27 @@ There is no public administrator registration route. Provision the first admin
 on the server:
 
 ```powershell
-# Run from the repository root with the virtual environment active.
-python backend/scripts/create_admin.py --user-id admin --email admin@example.com
+# Run from the repository root.
+.\venv\Scripts\python.exe backend\scripts\create_admin.py --user-id admin --email admin@example.com
 ```
 
-The script prompts for the password (or reads `ADMIN_PASSWORD`), enforces the
-12-character minimum policy, stores a bcrypt hash, and refuses to overwrite an
-existing user. Do not put the password in shell history or commit it.
+Check the local database without changing any user first:
+
+```powershell
+.\venv\Scripts\python.exe backend\scripts\create_admin.py --user-id admin --email admin@admin.com --check
+```
+
+If that account exists and its password is unknown, reset only that existing
+administrator interactively:
+
+```powershell
+.\venv\Scripts\python.exe backend\scripts\create_admin.py --user-id admin --email admin@admin.com --reset-password
+```
+
+The script prompts for the password (or reads `ADMIN_PASSWORD`), stores only a
+bcrypt hash, and never prints the password. It refuses to create, reset or
+promote a non-administrator account. Do not put a password in shell history or
+commit it.
 
 After that, additional users are created by an ADMIN from the Users page or via
 `POST /api/auth/register` (which itself requires an ADMIN session).

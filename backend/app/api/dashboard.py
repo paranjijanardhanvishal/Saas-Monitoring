@@ -36,6 +36,9 @@ async def dashboard_overview(current_user: UserModel = Depends(get_current_activ
         query.update(extra)
         return query
 
+    device_query: dict = {} if is_admin else {"user_id": current_user.user_id}
+    stale_cutoff = now - timedelta(seconds=settings.AGENT_HEARTBEAT_STALE_SECONDS)
+
     (
         events_24h,
         events_7d,

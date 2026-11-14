@@ -7,6 +7,7 @@ from app.privacy.presidio_analyzer import (
     get_engine_name,
     reset_analyzer,
 )
+from app.privacy.ocr import get_ocr_status
 from app.privacy.schemas import PrivacyAnalysisRequest
 from app.privacy.sensitivity import (
     calculate_sensitivity_score,
@@ -15,6 +16,13 @@ from app.privacy.sensitivity import (
 )
 from app.privacy.service import analyze_text
 from conftest import create_user, login
+
+
+def require_local_ocr() -> None:
+    """Skip image-recognition tests when Tesseract is not installed locally."""
+    status = get_ocr_status()
+    if not status.get("available"):
+        pytest.skip(status.get("reason", "Tesseract OCR is unavailable"))
 
 
 def test_regex_engine_detects_identifiers():
@@ -164,6 +172,8 @@ async def test_ocr_scan_end_to_end_with_pii_and_risk(client, db):
     import io
     from PIL import Image, ImageDraw
 
+    require_local_ocr()
+
     await create_user("ocr-pipeline-user")
     token = (await login(client, "ocr-pipeline-user"))["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
@@ -246,6 +256,8 @@ async def test_scanned_image_only_pdf_scan(client, db):
     import fitz
     from PIL import Image, ImageDraw
 
+    require_local_ocr()
+
     await create_user("pdf-scanned-user")
     token = (await login(client, "pdf-scanned-user"))["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
@@ -277,6 +289,8 @@ async def test_mixed_pdf_scan(client, db):
     import io
     import fitz
     from PIL import Image, ImageDraw
+
+    require_local_ocr()
 
     await create_user("pdf-mixed-user")
     token = (await login(client, "pdf-mixed-user"))["access_token"]

@@ -74,6 +74,17 @@ async def test_login_rejects_bad_password_and_unknown_user(client, db):
 
 
 @pytest.mark.asyncio
+async def test_login_does_not_use_hardcoded_account_aliases(client, db):
+    """Only the persisted email or user ID may identify an account."""
+    await create_user("admin", email="actual-admin@example.com", role="ADMIN")
+    response = await client.post(
+        "/api/auth/login",
+        data={"username": "admin@admin.com", "password": TEST_PASSWORD},
+    )
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
 async def test_login_sets_httponly_cookie_and_csrf_cookie(client, db):
     await create_user("cookie-user")
     response = await client.post(
