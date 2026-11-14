@@ -91,7 +91,7 @@ function actionTone(action) {
 }
 
 export default function Enforcement() {
-  const { isAdmin, isEditor, isVisitor } = useAuth();
+  const { isAdmin, isEditor } = useAuth();
   const canEnforce = isAdmin || isEditor;
 
   const [risks, setRisks] = useState([]);

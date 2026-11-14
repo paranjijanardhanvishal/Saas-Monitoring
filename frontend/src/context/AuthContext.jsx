@@ -1,7 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AUTH_EXPIRED_EVENT,
-  errorMessage,
   getMe,
   login as apiLogin,
   logout as apiLogout,

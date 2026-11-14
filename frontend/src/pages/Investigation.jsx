@@ -136,14 +136,14 @@ export default function Investigation() {
 
   const counts = useMemo(
     () => ({
-      events: countOf(events),
-      alerts: countOf(alerts),
-      incidents: countOf(incidents),
-      risks: countOf(risks),
-      anomalies: countOf(anomalies.filter((item) => item.is_anomaly)),
-      findings: countOf(findings),
+      events: countOf(investigation?.events),
+      alerts: countOf(investigation?.alerts),
+      incidents: countOf(investigation?.incidents),
+      risks: countOf(investigation?.risk_assessments),
+      anomalies: countOf((investigation?.anomalies || []).filter((item) => item.is_anomaly)),
+      findings: countOf(investigation?.pii_findings),
     }),
-    [events, alerts, incidents, risks, anomalies, findings],
+    [investigation],
   );
 
   return (

@@ -235,8 +235,8 @@ export default function SystemHealth() {
   };
 
   const databaseConnected = Boolean(health?.database?.connected);
-  const collections = health?.database?.collections || {};
-  const collectionEntries = useMemo(() => Object.entries(collections), [collections]);
+  const collections = health?.database?.collections;
+  const collectionEntries = useMemo(() => Object.entries(collections || {}), [collections]);
   const totalDocuments = useMemo(
     () =>
       collectionEntries.reduce((total, [, value]) => total + (Number.isFinite(Number(value)) ? Number(value) : 0), 0),

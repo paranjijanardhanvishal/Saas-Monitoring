@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -22,7 +24,7 @@ class Settings(BaseSettings):
     JWT_SECRET_KEY: str = ""
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 480
     COOKIE_SECURE: bool = False
-    COOKIE_SAMESITE: str = "lax"
+    COOKIE_SAMESITE: Literal["lax", "none", "strict"] = "lax"
 
     # Server-to-server SaaS proxy ingestion credential. Never ships to browsers.
     INGESTION_API_KEY: str = ""

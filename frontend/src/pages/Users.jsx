@@ -21,7 +21,6 @@ import {
   getUserDevices,
   getUserSummary,
   revokeAgentDevice,
-  updateUser,
   updateUserBusinessRole,
 } from '../api';
 import { useAuth } from '../context/AuthContext';

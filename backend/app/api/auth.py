@@ -4,7 +4,7 @@ import logging
 import secrets
 import smtplib
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
@@ -41,12 +41,15 @@ CSRF_COOKIE = "csrf_token"
 
 def _set_auth_cookies(response: Response, token: str, csrf_token: str) -> None:
     max_age = settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
+    samesite_mode: Literal["lax", "none", "strict"] = (
+        settings.COOKIE_SAMESITE if settings.COOKIE_SAMESITE in ("lax", "none", "strict") else "lax"
+    )
     response.set_cookie(
         key=ACCESS_COOKIE,
         value=token,
         httponly=True,
         secure=settings.COOKIE_SECURE,
-        samesite=settings.COOKIE_SAMESITE,
+        samesite=samesite_mode,
         max_age=max_age,
         path="/",
     )
@@ -57,7 +60,7 @@ def _set_auth_cookies(response: Response, token: str, csrf_token: str) -> None:
         value=csrf_token,
         httponly=False,
         secure=settings.COOKIE_SECURE,
-        samesite=settings.COOKIE_SAMESITE,
+        samesite=samesite_mode,
         max_age=max_age,
         path="/",
     )
@@ -75,7 +78,7 @@ async def register(user: UserCreate, current_admin=Depends(get_current_admin_use
     if db is None:
         raise HTTPException(status_code=503, detail="Database not connected")
 
-    email = str(user.email).lower()
+    email = user.email.lower()
     if await db.users.find_one({"email": email}):
         raise HTTPException(status_code=409, detail="Email already registered")
     if await db.users.find_one({"user_id": user.user_id}):
@@ -136,7 +139,7 @@ async def signup(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
-    email = str(payload.email).strip().lower()
+    email = payload.email.strip().lower()
 
     # Check if email is already registered
     existing_user_by_email = await db.users.find_one({"email": email})
@@ -289,8 +292,8 @@ async def login(
 @router.post("/logout")
 async def logout(
     response: Response,
+    request: Request,
     current_user: UserModel = Depends(get_current_user),
-    request: Request = None,
 ):
     _clear_auth_cookies(response)
     db = get_database()
@@ -403,7 +406,7 @@ async def forgot_password(
     Enumeration-safe: always returns 200 whether email exists or not.
     """
     client_ip = request.client.host if request.client else "unknown"
-    limiter_key = f"{client_ip}:{str(payload.email).lower().strip()}"
+    limiter_key = f"{client_ip}:{payload.email.lower().strip()}"
     if forgot_password_limiter.is_limited(limiter_key):
         raise HTTPException(
             status_code=429,
@@ -415,7 +418,7 @@ async def forgot_password(
     if db is None:
         raise HTTPException(status_code=503, detail="Database not connected")
 
-    email = str(payload.email).lower().strip()
+    email = payload.email.lower().strip()
     user = await db.users.find_one({"email": email})
 
     dev_reset_link = None
