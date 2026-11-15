@@ -5,6 +5,7 @@ import os
 
 from google.auth.exceptions import DefaultCredentialsError
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaIoBaseDownload
 
 from app.core.config import settings
@@ -19,6 +20,7 @@ class GoogleDriveService:
         self._credentials_path = credentials_path
         self._folder_id = folder_id
         self.service = None
+        self.service_account_email = None
 
     @property
     def credentials_path(self) -> str:
@@ -62,7 +64,9 @@ class GoogleDriveService:
             credentials = service_account.Credentials.from_service_account_file(
                 path, scopes=SCOPES
             )
+            self.service_account_email = credentials.service_account_email
             self.service = build("drive", "v3", credentials=credentials, cache_discovery=False)
+            logger.info("Google Drive service account authenticated: %s", self.service_account_email)
             return self.service
         except (DefaultCredentialsError, ValueError, OSError) as exc:
             logger.exception("Google Drive service-account authentication failed: %s", exc)
@@ -71,6 +75,12 @@ class GoogleDriveService:
     def _client(self):
         return self.service or self.authenticate()
 
+    def get_current_user(self):
+        """Return non-sensitive service-account identity for legacy sync callers."""
+        if not self._client():
+            return None
+        return {"emailAddress": self.service_account_email} if self.service_account_email else None
+
     def list_files(self, page_size=100):
         """List all non-trashed direct children of the configured shared folder."""
         if not self.folder_id:
@@ -78,17 +88,60 @@ class GoogleDriveService:
         client = self._client()
         if client is None:
             raise RuntimeError("Google Drive credentials are not configured")
+        logger.info(
+            "Checking Google Drive folder access: folder_id=%s service_account=%s",
+            self.folder_id,
+            self.service_account_email or "identity_unavailable",
+        )
+        try:
+            folder = client.files().get(
+                fileId=self.folder_id,
+                fields="id,name,mimeType,driveId",
+            ).execute()
+        except HttpError as exc:
+            status = getattr(getattr(exc, "resp", None), "status", "unknown")
+            logger.error(
+                "Google Drive folder probe failed: status=%s folder_id=%s service_account=%s",
+                status,
+                self.folder_id,
+                self.service_account_email or "identity_unavailable",
+            )
+            raise RuntimeError(
+                f"Google Drive cannot access configured folder (HTTP {status}); "
+                "check the folder ID and sharing with the authenticated service account"
+            ) from exc
+        if folder.get("id") != self.folder_id or folder.get("mimeType") != "application/vnd.google-apps.folder":
+            logger.error(
+                "Configured Google Drive ID is not an accessible folder: folder_id=%s returned_id=%s mime_type=%s",
+                self.folder_id,
+                folder.get("id"),
+                folder.get("mimeType"),
+            )
+            raise RuntimeError("Configured Google Drive ID is not an accessible folder")
+        logger.info(
+            "Google Drive folder access confirmed: folder_id=%s name=%s drive_id=%s",
+            self.folder_id,
+            folder.get("name", "[unnamed]"),
+            folder.get("driveId", "my-drive"),
+        )
         files, page_token = [], None
         fields = "nextPageToken,files(id,name,mimeType,size,owners(displayName,emailAddress),createdTime,modifiedTime,trashed)"
         while True:
-            result = client.files().list(
-                q=f"'{self.folder_id}' in parents and trashed = false",
-                pageSize=min(max(page_size, 1), 1000),
-                pageToken=page_token,
-                fields=fields,
-                supportsAllDrives=True,
-                includeItemsFromAllDrives=True,
-            ).execute()
+            try:
+                result = client.files().list(
+                    q=f"'{self.folder_id}' in parents and trashed = false",
+                    pageSize=min(max(page_size, 1), 1000),
+                    pageToken=page_token,
+                    fields=fields,
+                ).execute()
+            except HttpError as exc:
+                status = getattr(getattr(exc, "resp", None), "status", "unknown")
+                logger.error(
+                    "Google Drive child listing failed after folder probe: status=%s folder_id=%s",
+                    status,
+                    self.folder_id,
+                )
+                raise
             batch = result.get("files", [])
             for item in batch:
                 if not all(isinstance(item.get(key), str) and item[key] for key in ("id", "name", "mimeType")):
@@ -106,7 +159,7 @@ class GoogleDriveService:
         client = self._client()
         if client is None:
             raise RuntimeError("Google Drive credentials are not configured")
-        request = client.files().get_media(fileId=file_id, supportsAllDrives=True)
+        request = client.files().get_media(fileId=file_id)
         output = io.BytesIO()
         downloader = MediaIoBaseDownload(output, request)
         done = False
