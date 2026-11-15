@@ -60,9 +60,11 @@ const RISK_COLORS = {
 
 function ChartTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null;
+  const item = payload[0]?.payload;
+  const displayLabel = item?.fullLabel || label;
   return (
     <div className="rounded-lg border border-slate-700 bg-[#111827] px-3 py-2 text-xs shadow-xl">
-      <p className="font-semibold text-slate-200">{label}</p>
+      <p className="font-semibold text-slate-200">{displayLabel}</p>
       {payload.map((entry) => (
         <p key={entry.dataKey || entry.name} className="mt-0.5 text-slate-400">
           {entry.name}: <span className="font-semibold text-slate-100">{entry.value}</span>
@@ -110,10 +112,25 @@ export default function Overview() {
 
   const hourly = useMemo(
     () =>
-      (data?.events?.by_hour || []).map((row) => ({
-        hour: row.hour?.slice(11, 16) || row.hour,
-        events: row.count,
-      })),
+      (data?.events?.by_hour || []).map((row) => {
+        const date = row.hour ? new Date(row.hour) : null;
+        const valid = date && !Number.isNaN(date.getTime());
+        return {
+          rawHour: row.hour,
+          hour: valid
+            ? date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+            : (row.hour?.slice(11, 16) || row.hour),
+          fullLabel: valid
+            ? date.toLocaleString(undefined, {
+                month: 'short',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+              })
+            : row.hour,
+          events: Number(row.count) || 0,
+        };
+      }),
     [data],
   );
 
@@ -203,7 +220,7 @@ export default function Overview() {
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
                   <XAxis dataKey="hour" stroke="#475569" fontSize={10} tickLine={false} axisLine={false} />
-                  <YAxis stroke="#475569" fontSize={10} tickLine={false} axisLine={false} allowDecimals={false} />
+                  <YAxis stroke="#475569" fontSize={10} tickLine={false} axisLine={false} allowDecimals={false} domain={[0, 'auto']} />
                   <Tooltip content={<ChartTooltip />} />
                   <Area type="monotone" dataKey="events" name="Events" stroke="#3b82f6" strokeWidth={2} fill="url(#eventFill)" />
                 </AreaChart>

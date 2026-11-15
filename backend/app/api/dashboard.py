@@ -88,7 +88,7 @@ async def dashboard_overview(current_user: UserModel = Depends(get_current_activ
             {
                 "$group": {
                     "_id": {
-                        "$dateToString": {"format": "%Y-%m-%dT%H:00", "date": "$timestamp"}
+                        "$dateToString": {"format": "%Y-%m-%dT%H:00:00Z", "date": "$timestamp"}
                     },
                     "count": {"$sum": 1},
                 }
@@ -107,6 +107,18 @@ async def dashboard_overview(current_user: UserModel = Depends(get_current_activ
     for level in ("LOW", "MEDIUM", "HIGH", "CRITICAL"):
         risk_by_category.setdefault(level, 0)
 
+    # Build continuous 24-hour timeline ending at the current hour (UTC)
+    current_hour = now.replace(minute=0, second=0, microsecond=0)
+    bucket_datetimes = [current_hour - timedelta(hours=23 - i) for i in range(24)]
+    counts_by_hour = {row["_id"]: row["count"] for row in hourly_rows}
+    by_hour = [
+        {
+            "hour": b.strftime("%Y-%m-%dT%H:00:00Z"),
+            "count": counts_by_hour.get(b.strftime("%Y-%m-%dT%H:00:00Z"), 0),
+        }
+        for b in bucket_datetimes
+    ]
+
     response: dict[str, Any] = {
         "generated_at": now,
         "scope": "ADMIN" if is_admin else "USER",
@@ -114,7 +126,7 @@ async def dashboard_overview(current_user: UserModel = Depends(get_current_activ
             "last_24h": events_24h,
             "last_7d": events_7d,
             "last_event_at": last_event.get("timestamp") if last_event else None,
-            "by_hour": [{"hour": row["_id"], "count": row["count"]} for row in hourly_rows],
+            "by_hour": by_hour,
         },
         "alerts": {
             "open": open_alerts,
