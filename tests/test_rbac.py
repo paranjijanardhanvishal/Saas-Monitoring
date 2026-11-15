@@ -24,17 +24,111 @@ def _event(event_id: str, user_id: str, **overrides) -> dict:
 
 
 @pytest.mark.asyncio
-async def test_user_directory_is_admin_only(client, db):
+async def test_user_directory_is_restricted_for_user_and_visitor(client, db):
     await create_user("admin-rbac", role="ADMIN")
-    await create_user("member-rbac")
+    await create_user("member-rbac", email="member-secret@example.com", display_name="Private Member", consent="ALLOWED")
+    await create_user("visitor-rbac", email="visitor-secret@example.com", display_name="Private Visitor", role="VISITOR", consent="ALLOWED")
     admin = {"Authorization": f"Bearer {(await login(client, 'admin-rbac'))['access_token']}"}
     member = {"Authorization": f"Bearer {(await login(client, 'member-rbac'))['access_token']}"}
+    visitor = {"Authorization": f"Bearer {(await login(client, 'visitor-rbac'))['access_token']}"}
 
-    assert (await client.get("/api/users", headers=member)).status_code == 403
     admin_list = await client.get("/api/users", headers=admin)
     assert admin_list.status_code == 200
     ids = {u["user_id"] for u in admin_list.json()}
     assert {"admin-rbac", "member-rbac"} <= ids
+    assert next(u for u in admin_list.json() if u["user_id"] == "member-rbac")["email"] == "member-secret@example.com"
+
+    for headers in (member, visitor):
+        directory = await client.get("/api/users/directory", headers=headers)
+        assert directory.status_code == 200
+        assert {entry["user_id"] for entry in directory.json()} >= {"admin-rbac", "member-rbac", "visitor-rbac"}
+        assert all(set(entry) == {"user_id", "role"} for entry in directory.json())
+        assert "member-secret@example.com" not in directory.text
+        assert "Private Member" not in directory.text
+        assert (await client.get("/api/users", headers=headers)).status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_directory_requires_auth_and_rejects_unexpected_role(client):
+    from types import SimpleNamespace
+
+    from app.core.dependencies import get_current_user
+    from app.main import app
+
+    assert (await client.get("/api/users/directory")).status_code == 401
+
+    async def unexpected_role():
+        return SimpleNamespace(user_id="unexpected-role", role="SERVICE")
+
+    app.dependency_overrides[get_current_user] = unexpected_role
+    try:
+        response = await client.get("/api/users/directory")
+        assert response.status_code == 403
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+
+@pytest.mark.asyncio
+async def test_user_and_visitor_cannot_access_profiles_or_write_users(client, db):
+    await create_user("restricted-user", consent="ALLOWED")
+    await create_user("restricted-visitor", role="VISITOR", consent="ALLOWED")
+    headers_by_role = {
+        "USER": {"Authorization": f"Bearer {(await login(client, 'restricted-user'))['access_token']}"},
+        "VISITOR": {"Authorization": f"Bearer {(await login(client, 'restricted-visitor'))['access_token']}"},
+    }
+    for headers in headers_by_role.values():
+        for url in (
+            "/api/users/restricted-user",
+            "/api/users/restricted-user/summary",
+            "/api/users/restricted-user/devices",
+        ):
+            assert (await client.get(url, headers=headers)).status_code == 403
+        assert (await client.post(
+            "/api/users",
+            json={"user_id": "blocked-user", "email": "blocked@example.com", "password": "ValidPassword123"},
+            headers=headers,
+        )).status_code == 403
+        assert (await client.patch(
+            "/api/users/restricted-user", json={"display_name": "Changed"}, headers=headers
+        )).status_code == 403
+        assert (await client.patch(
+            "/api/users/restricted-user/business-role", json={"business_role": "FINANCE"}, headers=headers
+        )).status_code == 403
+        assert (await client.delete("/api/users/restricted-user", headers=headers)).status_code == 403
+        assert (await client.post(
+            "/api/agent/enrollment-token?user_id=restricted-user", headers=headers
+        )).status_code == 403
+    assert await db.users.count_documents({"user_id": "blocked-user"}) == 0
+
+
+@pytest.mark.asyncio
+async def test_admin_retains_user_crud_access(client, db):
+    await create_user("crud-admin", role="ADMIN")
+    await create_user("crud-target")
+    admin = {"Authorization": f"Bearer {(await login(client, 'crud-admin'))['access_token']}"}
+
+    detail = await client.get("/api/users/crud-target", headers=admin)
+    assert detail.status_code == 200
+    assert detail.json()["email"] == "crud-target@example.com"
+
+    created = await client.post(
+        "/api/users",
+        json={"user_id": "crud-created", "email": "created@example.com", "password": "ValidPassword123"},
+        headers=admin,
+    )
+    assert created.status_code == 201
+    updated = await client.patch(
+        "/api/users/crud-target", json={"role": "VISITOR", "display_name": "Updated"}, headers=admin
+    )
+    assert updated.status_code == 200
+    assert updated.json()["role"] == "VISITOR"
+    business = await client.patch(
+        "/api/users/crud-target/business-role", json={"business_role": "FINANCE"}, headers=admin
+    )
+    assert business.status_code == 200
+    assert business.json()["business_role"] == "FINANCE"
+    deleted = await client.delete("/api/users/crud-created", headers=admin)
+    assert deleted.status_code == 200
 
 
 @pytest.mark.asyncio
@@ -257,13 +351,15 @@ async def test_editor_and_visitor_roles_and_live_activity_gating(client, db):
     # 2. Users directory is visible to all SOC roles, with Visitor getting masked email
     editor_users = await client.get("/api/users", headers=editor)
     assert editor_users.status_code == 200
+    editor_directory = await client.get("/api/users/directory", headers=editor)
+    assert editor_directory.status_code == 200
+    assert all(set(u) == {"user_id", "role"} for u in editor_directory.json())
 
-    visitor_users = await client.get("/api/users", headers=visitor)
+    visitor_users = await client.get("/api/users/directory", headers=visitor)
     assert visitor_users.status_code == 200
-    # Verify visitor email masking
-    for u in visitor_users.json():
-        if u.get("email"):
-            assert "***" in u["email"]
+    # The restricted directory contains no email or profile fields.
+    assert all(set(u) == {"user_id", "role"} for u in visitor_users.json())
+    assert (await client.get("/api/users", headers=visitor)).status_code == 403
 
     # 3. Only ADMIN can delete users (Editor and Visitor get 403)
     assert (await client.delete("/api/users/demo-visitor", headers=visitor)).status_code == 403

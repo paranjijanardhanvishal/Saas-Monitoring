@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel
 
 from app.core.dependencies import ensure_self_or_admin, get_current_admin_user, get_current_user
 from app.core.security import get_password_hash
@@ -12,15 +13,19 @@ from app.services.audit import record_audit
 router = APIRouter()
 
 
-def _mask_email(email: Optional[str]) -> Optional[str]:
-    if not email:
-        return None
-    parts = str(email).split("@")
-    if len(parts) != 2:
-        return "***"
-    name, domain = parts
-    masked_name = name[0] + "***" if len(name) > 1 else "***"
-    return f"{masked_name}@{domain}"
+class UserDirectoryEntry(BaseModel):
+    """Minimum public directory fields; deliberately excludes personal data."""
+
+    user_id: str
+    role: str
+
+
+def _deny_restricted_directory_details(current_user: UserModel) -> None:
+    if current_user.role in ("USER", "VISITOR"):
+        raise HTTPException(
+            status_code=403,
+            detail="Detailed user records are restricted to authorized operators.",
+        )
 
 
 @router.get("/users", response_model=List[UserResponse])
@@ -37,7 +42,7 @@ async def get_users(
     current_user: UserModel = Depends(get_current_user),
 ):
     """Monitored user directory. Defaults to consenting (ALLOWED) users only."""
-    if current_user.role not in ("ADMIN", "EDITOR", "VISITOR"):
+    if current_user.role not in ("ADMIN", "EDITOR"):
         raise HTTPException(status_code=403, detail="Security console directory access required")
 
     db = get_database()
@@ -79,13 +84,7 @@ async def get_users(
 
     cursor = db.users.find(query).sort("user_id", 1).skip(skip).limit(limit)
     users = await cursor.to_list(length=limit)
-    responses = []
-    for u in users:
-        resp = UserResponse(**u)
-        if current_user.role == "VISITOR":
-            resp.email = _mask_email(resp.email)
-        responses.append(resp)
-    return responses
+    return [UserResponse(**u) for u in users]
 
 
 @router.post("/users", response_model=UserResponse, status_code=201)
@@ -260,8 +259,30 @@ async def update_user_business_role(
     return UserResponse(**updated)
 
 
+@router.get("/users/directory", response_model=List[UserDirectoryEntry])
+async def get_user_directory(
+    limit: int = Query(100, ge=1, le=200),
+    skip: int = Query(0, ge=0),
+    current_user: UserModel = Depends(get_current_user),
+):
+    """Return a minimal authenticated directory, with no profile fields."""
+    if current_user.role not in ("ADMIN", "EDITOR", "USER", "VISITOR"):
+        raise HTTPException(status_code=403, detail="User directory access is not permitted for this role.")
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database not connected")
+    cursor = (
+        db.users.find({}, {"_id": 0, "user_id": 1, "role": 1})
+        .sort("user_id", 1)
+        .skip(skip)
+        .limit(limit)
+    )
+    return await cursor.to_list(length=limit)
+
+
 @router.get("/users/{user_id}", response_model=UserResponse)
 async def get_user(user_id: str, current_user: UserModel = Depends(get_current_user)):
+    _deny_restricted_directory_details(current_user)
     ensure_self_or_admin(current_user, user_id)
     db = get_database()
     if db is None:
@@ -274,6 +295,7 @@ async def get_user(user_id: str, current_user: UserModel = Depends(get_current_u
 
 @router.get("/users/{user_id}/summary")
 async def get_user_summary(user_id: str, current_user: UserModel = Depends(get_current_user)):
+    _deny_restricted_directory_details(current_user)
     ensure_self_or_admin(current_user, user_id)
     db = get_database()
     if db is None:
@@ -322,6 +344,7 @@ async def get_user_summary(user_id: str, current_user: UserModel = Depends(get_c
 
 @router.get("/users/{user_id}/devices")
 async def get_user_devices(user_id: str, current_user: UserModel = Depends(get_current_user)):
+    _deny_restricted_directory_details(current_user)
     ensure_self_or_admin(current_user, user_id)
     db = get_database()
     if db is None:

@@ -181,6 +181,7 @@ export const getEvent = (eventId) => get(`/events/${encodeURIComponent(eventId)}
 /* ----------------------------------------------------------------- users */
 
 export const getUsers = (params) => get('/users', params);
+export const getUserDirectory = (params) => get('/users/directory', params);
 export const getUser = (userId) => get(`/users/${encodeURIComponent(userId)}`);
 export const getUserSummary = (userId) =>
   get(`/users/${encodeURIComponent(userId)}/summary`);

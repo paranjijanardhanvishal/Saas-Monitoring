@@ -69,6 +69,8 @@ async def create_enrollment_token(
     user_id: Optional[str] = None,
     current_user: UserModel = Depends(get_current_user),
 ):
+    if current_user.role in ("USER", "VISITOR"):
+        raise HTTPException(status_code=403, detail="Only authorized operators may issue enrollment tokens.")
     db = get_database()
     if db is None:
         raise HTTPException(status_code=503, detail="Database not connected")

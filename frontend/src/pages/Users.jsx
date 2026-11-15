@@ -18,6 +18,7 @@ import {
   deleteUser,
   errorMessage,
   getUsers,
+  getUserDirectory,
   getUserDevices,
   getUserSummary,
   revokeAgentDevice,
@@ -64,7 +65,8 @@ const emptyCreateForm = {
 };
 
 export default function Users() {
-  const { isAdmin, isEditor, isVisitor } = useAuth();
+  const { user, isAdmin, isEditor, isVisitor } = useAuth();
+  const directoryOnly = user?.role === 'USER' || user?.role === 'VISITOR';
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -109,15 +111,17 @@ export default function Users() {
       else setLoading(true);
       setError('');
       try {
-        const result = await getUsers({
-          limit: LIMIT,
-          skip: nextSkip,
-          q: appliedQuery || undefined,
-          consent: consent || undefined,
-          role: role || undefined,
-          business_role: businessRole || undefined,
-          include_pending: true,
-        });
+        const result = directoryOnly
+          ? await getUserDirectory({ limit: LIMIT, skip: nextSkip })
+          : await getUsers({
+              limit: LIMIT,
+              skip: nextSkip,
+              q: appliedQuery || undefined,
+              consent: consent || undefined,
+              role: role || undefined,
+              business_role: businessRole || undefined,
+              include_pending: true,
+            });
         setUsers(Array.isArray(result) ? result : []);
       } catch (err) {
         setError(errorMessage(err, 'Could not load the user directory.'));
@@ -126,7 +130,7 @@ export default function Users() {
         setRefreshing(false);
       }
     },
-    [skip, appliedQuery, consent, role, businessRole],
+    [skip, appliedQuery, consent, role, businessRole, directoryOnly],
   );
 
   useEffect(() => {
@@ -291,6 +295,52 @@ export default function Users() {
     });
     return counts;
   }, [users]);
+
+  if (directoryOnly) {
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          eyebrow="User directory"
+          title="Users"
+          subtitle="Read-only directory. Only user IDs and access roles are displayed."
+          actions={(
+            <button type="button" onClick={() => load({ silent: true, nextSkip: skip })} className={btnSecondary} disabled={refreshing}>
+              <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} /> Refresh
+            </button>
+          )}
+        />
+        <InlineNotice tone="neutral">
+          {isVisitor ? 'Visitor' : 'User'} access is read-only. Profiles, contact details, consent, devices, and administrative actions are not available.
+        </InlineNotice>
+        {error ? <ErrorState message={error} onRetry={() => load()} /> : null}
+        <Panel title="Directory" subtitle={`${users.length} account${users.length === 1 ? '' : 's'} on this page`} bodyClassName="p-0">
+          {loading ? <LoadingState /> : users.length === 0 ? (
+            <EmptyState icon={UsersIcon} title="No directory entries" message="No users are available in this directory view." />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="soc-table">
+                <thead><tr><th>User ID</th><th>Access role</th></tr></thead>
+                <tbody>{users.map((item) => (
+                  <tr key={item.user_id}>
+                    <td className="font-medium text-slate-200">{item.user_id}</td>
+                    <td><Badge tone={item.role === 'ADMIN' ? 'blue' : 'neutral'}>{item.role}</Badge></td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            </div>
+          )}
+          <Pagination
+            skip={skip}
+            limit={LIMIT}
+            count={users.length}
+            loading={loading}
+            onPrevious={() => setSkip((value) => Math.max(0, value - LIMIT))}
+            onNext={() => setSkip((value) => value + LIMIT)}
+          />
+        </Panel>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
