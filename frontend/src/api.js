@@ -267,6 +267,21 @@ export const getOcrStatus = () => get('/privacy/ocr-status');
 /* ----------------------------------------------------------------- files */
 
 export const getFiles = (params) => get('/files', params);
+export const getDriveStatus = () => get('/files/drive/status');
+export const syncDriveFiles = () => post('/files/sync', {});
+export async function downloadDriveFile(fileId) {
+  const response = await api.get(`/files/${encodeURIComponent(fileId)}/download`, { responseType: 'blob' });
+  const disposition = response.headers['content-disposition'] || '';
+  const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1] || 'download';
+  const url = URL.createObjectURL(response.data);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
 export const getFile = (fileId) => get(`/files/${encodeURIComponent(fileId)}`);
 export const getFilePiiFindings = (fileId) =>
   get(`/files/${encodeURIComponent(fileId)}/pii-findings`);

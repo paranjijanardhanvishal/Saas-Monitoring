@@ -16,10 +16,10 @@ PyJWT>=2.8
 certifi
 requests>=2.31
 
-# Google Drive metadata sync (optional feature, required by sync_drive.py)
+# Google Drive metadata and backend-mediated downloads.
 google-api-python-client>=2.120
+google-auth>=2.29
 google-auth-httplib2>=0.2
-google-auth-oauthlib>=1.2
 
 # Testing
 pytest>=8.0
@@ -31,4 +31,3 @@ httpx>=0.27
 pytesseract>=0.3.13
 Pillow>=10.0
 PyMuPDF>=1.24,<2.0
-

@@ -39,11 +39,18 @@ ACCESS_COOKIE = "access_token"
 CSRF_COOKIE = "csrf_token"
 
 
+def _get_samesite_mode() -> Literal["lax", "none", "strict"]:
+    val = str(settings.COOKIE_SAMESITE).lower()
+    if val == "none":
+        return "none"
+    if val == "strict":
+        return "strict"
+    return "lax"
+
+
 def _set_auth_cookies(response: Response, token: str, csrf_token: str) -> None:
     max_age = settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
-    samesite_mode: Literal["lax", "none", "strict"] = (
-        settings.COOKIE_SAMESITE if settings.COOKIE_SAMESITE in ("lax", "none", "strict") else "lax"
-    )
+    samesite_mode = _get_samesite_mode()
     response.set_cookie(
         key=ACCESS_COOKIE,
         value=token,

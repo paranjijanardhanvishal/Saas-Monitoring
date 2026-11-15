@@ -33,6 +33,12 @@ services:
         value: 480
       - key: INGESTION_API_KEY
         generateValue: true
+      # Add the JSON key in Render Dashboard > Environment > Secret Files at
+      # /etc/secrets/google-drive-service-account.json (never commit the key).
+      - key: GOOGLE_APPLICATION_CREDENTIALS
+        value: /etc/secrets/google-drive-service-account.json
+      - key: GOOGLE_DRIVE_FOLDER_ID
+        value: 1ujL7ZQKLBfLgHSMUjYS07bG0sUzNMPf
       - key: FRONTEND_URL
         sync: false
       - key: COOKIE_SECURE

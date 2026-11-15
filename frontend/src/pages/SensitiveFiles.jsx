@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ExternalLink,
+  Download,
   FileSearch,
   FileText,
   FileUp,
@@ -10,7 +10,8 @@ import {
   ShieldAlert,
   ShieldCheck,
 } from 'lucide-react';
-import { analyzeText, errorMessage, getFilePiiFindings, getFiles, getOcrStatus, getPrivacyFindings, scanOcrDocument } from '../api';
+import { analyzeText, downloadDriveFile, errorMessage, getFilePiiFindings, getFiles, getOcrStatus, getPrivacyFindings, scanOcrDocument, syncDriveFiles } from '../api';
+import { useAuth } from '../context/AuthContext';
 import {
   Badge,
   btnPrimary,
@@ -36,6 +37,7 @@ import {
 const CATEGORY_TONE = { SAFE: 'green', SENSITIVE: 'amber', HIGH_RISK: 'red' };
 
 export default function SensitiveFiles() {
+  const { user } = useAuth();
   const [tab, setTab] = useState('files');
   const [files, setFiles] = useState([]);
   const [findings, setFindings] = useState([]);
@@ -44,6 +46,8 @@ export default function SensitiveFiles() {
   const [error, setError] = useState('');
   const [fileQuery, setFileQuery] = useState('');
   const [findingCategory, setFindingCategory] = useState('');
+  const [syncing, setSyncing] = useState(false);
+  const [downloadError, setDownloadError] = useState('');
 
   const [selectedFile, setSelectedFile] = useState(null);
   const [fileFindings, setFileFindings] = useState([]);
@@ -124,6 +128,19 @@ export default function SensitiveFiles() {
       setFileError(errorMessage(err, 'Could not load findings for this file.'));
     } finally {
       setFileLoading(false);
+    }
+  };
+
+  const syncFiles = async () => {
+    setSyncing(true);
+    setError('');
+    try {
+      await syncDriveFiles();
+      await load({ silent: true });
+    } catch (err) {
+      setError(errorMessage(err, 'Could not synchronize Google Drive metadata.'));
+    } finally {
+      setSyncing(false);
     }
   };
 
@@ -235,8 +252,8 @@ export default function SensitiveFiles() {
       {tab === 'files' ? (
         <Panel
           title="Cloud file metadata"
-          subtitle="Names, owners and URLs only. The endpoint agent does not read file contents."
-          actions={<SearchInput value={fileQuery} onChange={setFileQuery} placeholder="Filter by file, owner or type" className="w-72" />}
+          subtitle="Shared Google Drive folder. Downloads are mediated and authorized by the backend."
+          actions={<div className="flex gap-2">{user?.role === 'ADMIN' ? <button className={btnSecondary} onClick={syncFiles} disabled={syncing}><RefreshCw size={14} className={syncing ? 'animate-spin' : ''} /> Sync Drive</button> : null}<SearchInput value={fileQuery} onChange={setFileQuery} placeholder="Filter by file, owner or type" className="w-72" /></div>}
           bodyClassName="p-0"
         >
           {loading ? (
@@ -247,7 +264,7 @@ export default function SensitiveFiles() {
               title={files.length === 0 ? 'No cloud file metadata' : 'No files match the filter'}
               message={
                 files.length === 0
-                  ? 'Metadata appears here after a configured SaaS/cloud connector synchronises file records. This page does not claim visibility into local file contents.'
+                  ? 'No synchronized Google Drive files are available. An administrator can synchronize the configured shared folder.'
                   : 'Adjust the text filter to see more records.'
               }
             />
@@ -261,6 +278,7 @@ export default function SensitiveFiles() {
                     <th>Type</th>
                     <th>Source</th>
                     <th>Modified</th>
+                    <th>Size</th>
                     <th>Retrieved</th>
                     <th className="text-right">Findings</th>
                   </tr>
@@ -276,9 +294,10 @@ export default function SensitiveFiles() {
                       <td className="text-slate-400">{file.mime_type || '—'}</td>
                       <td><Badge tone="purple">{file.source || 'unknown'}</Badge></td>
                       <td className="whitespace-nowrap text-slate-400">{file.modified_time ? formatDateTime(file.modified_time) : '—'}</td>
+                      <td className="text-slate-400">{file.size == null ? '—' : `${(file.size / 1024).toFixed(1)} KB`}</td>
                       <td className="whitespace-nowrap text-slate-500">{file.retrieved_timestamp ? timeAgo(file.retrieved_timestamp) : '—'}</td>
                       <td className="text-right">
-                        <button type="button" className={btnSecondary} onClick={() => openFile(file)}>Open</button>
+                        <div className="flex justify-end gap-2"><button type="button" className={btnSecondary} onClick={() => openFile(file)}>Open</button>{['ADMIN', 'USER'].includes(user?.role) ? <button type="button" className={btnSecondary} onClick={async () => { setDownloadError(''); try { await downloadDriveFile(file.file_id); } catch (err) { setDownloadError(errorMessage(err, 'Download failed.')); } }} title="Download"><Download size={14} /></button> : null}</div>
                       </td>
                     </tr>
                   ))}
@@ -286,6 +305,8 @@ export default function SensitiveFiles() {
               </table>
             </div>
           )}
+          {user?.role === 'VISITOR' ? <p className="border-t border-slate-800 p-3 text-xs text-slate-400">Visitor access is read-only. File downloads are disabled for your role.</p> : null}
+          {downloadError ? <p role="alert" className="border-t border-red-900/50 p-3 text-xs text-red-300">{downloadError}</p> : null}
         </Panel>
       ) : (
         <Panel
@@ -372,13 +393,6 @@ export default function SensitiveFiles() {
               <KeyValue label="Created">{selectedFile.created_time ? formatDateTime(selectedFile.created_time) : '—'}</KeyValue>
               <KeyValue label="Modified">{selectedFile.modified_time ? formatDateTime(selectedFile.modified_time) : '—'}</KeyValue>
               <KeyValue label="Retrieved">{selectedFile.retrieved_timestamp ? formatDateTime(selectedFile.retrieved_timestamp) : '—'}</KeyValue>
-              <KeyValue label="Web URL" className="col-span-2">
-                {selectedFile.web_url && /^https?:\/\//i.test(selectedFile.web_url) ? (
-                  <a href={selectedFile.web_url} target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-1 text-blue-400 hover:text-blue-300">
-                    Open in provider <ExternalLink size={12} />
-                  </a>
-                ) : '—'}
-              </KeyValue>
             </section>
 
             <section>

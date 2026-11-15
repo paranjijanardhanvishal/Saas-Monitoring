@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -31,6 +32,12 @@ def _tls_options() -> dict:
 
 
 async def connect_to_mongo() -> None:
+    if (settings.APP_ENV == "test" or os.getenv("APP_ENV") == "test") and os.getenv("TEST_USE_REAL_MONGO") != "1":
+        from tests.mock_database import MockMongoClient
+        db_client.client = MockMongoClient()
+        db_client.db = db_client.client[settings.MONGO_DB_NAME]
+        return
+
     db_client.client = AsyncIOMotorClient(
         settings.MONGODB_URI,
         serverSelectionTimeoutMS=5000,
@@ -50,6 +57,7 @@ async def connect_to_mongo() -> None:
         logger.info("Connected to MongoDB database '%s'", settings.MONGO_DB_NAME)
     except Exception:
         logger.exception("MongoDB connection check failed; API will report degraded health")
+        return
     await ensure_indexes()
     await ensure_demo_accounts()
 

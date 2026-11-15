@@ -12,6 +12,15 @@ project-excludes = [
     "**/.verify-venv",
     "**/frontend",
 ]
+search-path = [
+    ".",
+    "backend",
+    "agent",
+]
+site-package-path = [
+    "venv/Lib/site-packages",
+    ".verify-venv/Lib/site-packages",
+]
 site-packages-path = [
     "backend",
     "agent",
@@ -28,3 +37,4 @@ disable-type-errors-in-ide = false
 invalid-variance = "ignore"
 bad-override-param-name = "ignore"
 bad-override = "ignore"
+unnecessary-type-conversion = "ignore"

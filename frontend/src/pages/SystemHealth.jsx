@@ -371,6 +371,10 @@ export default function SystemHealth() {
                     <span className="text-xs text-slate-300">Jira ticketing</span>
                     <ConfigBadge configured={Boolean(health.integrations?.jira_configured)} label="Jira" />
                   </div>
+                  <div className="flex items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-900/40 px-3 py-2">
+                    <span className="text-xs text-slate-300">Google Drive storage</span>
+                    <ConfigBadge configured={Boolean(health.integrations?.google_drive_configured)} label="Google Drive" />
+                  </div>
                 </div>
                 <p className="mt-3 text-[11px] leading-relaxed text-slate-500">
                   This panel reports configuration presence only. It does not perform an outbound delivery

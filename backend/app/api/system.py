@@ -11,6 +11,7 @@ from app.database.mongodb import get_database
 from app.models.user import UserModel
 from app.privacy.ocr import get_ocr_status
 from app.privacy.presidio_analyzer import active_engine_name
+from app.services.google_drive import drive_service
 
 router = APIRouter()
 
@@ -98,6 +99,7 @@ async def system_health(current_user: UserModel = Depends(get_current_admin_user
         "integrations": {
             "slack_configured": bool(os.getenv("SLACK_WEBHOOK_URL")),
             "jira_configured": bool(os.getenv("JIRA_API_URL") and os.getenv("JIRA_AUTH_TOKEN")),
+            "google_drive_configured": drive_service.is_configured(),
         },
         "runtime": {
             "python": platform.python_version(),

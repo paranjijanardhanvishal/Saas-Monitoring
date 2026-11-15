@@ -29,6 +29,11 @@ class Settings(BaseSettings):
     # Server-to-server SaaS proxy ingestion credential. Never ships to browsers.
     INGESTION_API_KEY: str = ""
 
+    # Google Drive: set GOOGLE_APPLICATION_CREDENTIALS to a mounted Render
+    # secret-file path and GOOGLE_DRIVE_FOLDER_ID to the approved shared folder.
+    GOOGLE_APPLICATION_CREDENTIALS: str = ""
+    GOOGLE_DRIVE_FOLDER_ID: str = ""
+
     # PII engine selection: auto | presidio | regex
     PII_ENGINE: str = "auto"
     PII_MAX_TEXT_LENGTH: int = 100000
