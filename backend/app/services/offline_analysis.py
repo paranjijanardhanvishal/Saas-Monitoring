@@ -26,6 +26,7 @@ from app.privacy.extractors import extract_file_content
 from app.privacy.schemas import PrivacyAnalysisRequest
 from app.privacy.service import analyze_text
 from app.services.google_drive import drive_service
+from app.services.onedrive import onedrive_service
 
 logger = logging.getLogger(__name__)
 
@@ -177,12 +178,19 @@ async def run_offline_analysis(
         content_type = ""
         max_retries = 2
         last_exc: Optional[Exception] = None
+        source = file_doc.get("source", "google_drive")
 
         for attempt in range(max_retries + 1):
             try:
-                content_stream, content_type = await asyncio.to_thread(
-                    drive_service.download_file, file_id
-                )
+                if source == "onedrive":
+                    provider_id = file_doc.get("provider_file_id") or file_id
+                    content_stream, content_type = await asyncio.to_thread(
+                        onedrive_service.download_file, provider_id
+                    )
+                else:
+                    content_stream, content_type = await asyncio.to_thread(
+                        drive_service.download_file, file_id
+                    )
                 raw_payload = content_stream.read()
                 content_stream.close()
                 last_exc = None

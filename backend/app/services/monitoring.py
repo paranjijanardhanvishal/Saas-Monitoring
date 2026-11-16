@@ -91,17 +91,21 @@ async def persist_files(files_data: List[Dict[str, Any]]) -> int:
             file_id=item["id"],
             name=item["name"],
             mime_type=item["mimeType"],
-            size=int(item["size"]) if str(item.get("size", "")).isdigit() else None,
+            size=int(item["size"]) if (isinstance(item.get("size"), (int, float)) or str(item.get("size", "")).isdigit()) else None,
             owner_email=owner_email,
             owner_name=(item.get("owners") or [{}])[0].get("displayName"),
             created_time=item.get("createdTime"),
             modified_time=item.get("modifiedTime"),
+            source=item.get("source", "google_drive"),
+            provider_file_id=item.get("provider_file_id"),
+            drive_id=item.get("drive_id"),
+            web_url=item.get("webUrl"),
         )
         document = file_model.model_dump()
-        document["folder_id"] = item.get("_folder_id")
+        document["folder_id"] = item.get("_folder_id") or item.get("folder_id")
         document["available"] = True
         await db.files.update_one(
-            {"file_id": file_model.file_id},
+            {"file_id": file_model.file_id, "source": file_model.source},
             {"$set": {key: value for key, value in document.items() if value is not None}},
             upsert=True,
         )

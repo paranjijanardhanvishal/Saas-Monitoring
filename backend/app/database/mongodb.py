@@ -169,6 +169,14 @@ INDEX_DEFINITIONS: dict[str, list[IndexModel]] = {
         IndexModel([("created_at", DESCENDING)]),
         IndexModel([("run_id", ASCENDING)], unique=True),
     ],
+    "files": [
+        IndexModel([("file_id", ASCENDING)], unique=True),
+        IndexModel([("source", ASCENDING), ("file_id", ASCENDING)]),
+        IndexModel([("source", ASCENDING), ("drive_id", ASCENDING)]),
+        IndexModel([("source", ASCENDING), ("folder_id", ASCENDING)]),
+        IndexModel([("modified_time", DESCENDING)]),
+        IndexModel([("owner_email", ASCENDING)]),
+    ],
 }
 
 

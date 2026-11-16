@@ -34,6 +34,13 @@ class Settings(BaseSettings):
     GOOGLE_APPLICATION_CREDENTIALS: str = ""
     GOOGLE_DRIVE_FOLDER_ID: str = ""
 
+    # Microsoft OneDrive (Microsoft Graph API integration)
+    # Requires Microsoft Entra ID Application permission Files.Read.All with admin consent.
+    ONEDRIVE_TENANT_ID: str = ""
+    ONEDRIVE_CLIENT_ID: str = ""
+    ONEDRIVE_CLIENT_SECRET: str = ""
+    ONEDRIVE_DRIVE_ID: str = ""
+
     # PII engine selection: auto | presidio | regex
     PII_ENGINE: str = "auto"
     PII_MAX_TEXT_LENGTH: int = 100000

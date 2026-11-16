@@ -15,6 +15,9 @@ class FileModel(BaseModel):
     source: str = "google_drive"
     retrieved_timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     folder_id: Optional[str] = None
+    drive_id: Optional[str] = None
+    provider_file_id: Optional[str] = None
+    web_url: Optional[str] = None
     available: Optional[bool] = True
 
     # Offline content analysis & Vector metadata indexing (Base Paper Phase 1)

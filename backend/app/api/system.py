@@ -13,6 +13,7 @@ from app.privacy.ocr import get_ocr_status
 from app.privacy.presidio_analyzer import active_engine_name
 from app.services.google_drive import drive_service
 from app.services.jira import get_jira_status, is_jira_configured
+from app.services.onedrive import onedrive_service
 from app.services.slack import get_slack_status, is_slack_configured
 
 router = APIRouter()
@@ -102,12 +103,14 @@ async def system_health(current_user: UserModel = Depends(get_current_admin_user
             "slack_configured": is_slack_configured(),
             "jira_configured": is_jira_configured(),
             "google_drive_configured": drive_service.is_configured(),
+            "onedrive_configured": onedrive_service.is_configured(),
             "slack": get_slack_status(),
             "jira": get_jira_status(),
             "google_drive": {
                 "configured": drive_service.is_configured(),
                 "status": "configured" if drive_service.is_configured() else "not_configured",
             },
+            "onedrive": onedrive_service.get_status(),
         },
         "runtime": {
             "python": platform.python_version(),

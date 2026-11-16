@@ -16,6 +16,7 @@ from app.models.file import FileModel
 from app.models.user import UserModel
 from app.models.event import ActionEnum, EventModel
 from app.services.google_drive import drive_service
+from app.services.onedrive import onedrive_service
 from app.services.monitoring import log_event, persist_files
 from app.services.audit import record_audit
 from app.services.offline_analysis import (
@@ -50,10 +51,13 @@ async def get_files(
     if owner_email and current_user.role == "ADMIN":
         query["owner_email"] = owner_email
     elif current_user.role != "ADMIN":
-        # Shared-folder Drive records are visible across roles; legacy personal
-        # metadata remains isolated to its owner.
+        # Shared cloud records (Google Drive folders or OneDrive drives) are visible across roles;
+        # personal metadata remains isolated to its owner.
         email = str(current_user.email).lower() if current_user.email else None
-        query["$or"] = ([{"folder_id": {"$exists": True}}] + ([{"owner_email": email}] if email else []))
+        query["$or"] = (
+            [{"folder_id": {"$exists": True}}, {"drive_id": {"$exists": True}}]
+            + ([{"owner_email": email}] if email else [])
+        )
     if source:
         query["source"] = source
 
@@ -117,6 +121,61 @@ async def sync_drive_files(
                            reason="Provider synchronization failed",
                            client_ip=request.client.host if request.client else None)
         raise HTTPException(status_code=502, detail="Google Drive synchronization failed") from exc
+
+
+@router.get("/files/onedrive/status")
+async def get_onedrive_status(
+    current_user: UserModel = Depends(get_current_active_user),
+):
+    """Report non-sensitive Microsoft OneDrive integration status."""
+    return onedrive_service.get_status()
+
+
+@router.post("/files/onedrive/sync")
+async def sync_onedrive_files(
+    request: Request,
+    current_user: UserModel = Depends(get_current_active_user),
+):
+    """Synchronize metadata for the configured OneDrive / SharePoint library (ADMIN only)."""
+    if current_user.role != "ADMIN":
+        raise HTTPException(status_code=403, detail="Administrator privileges required")
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database not connected")
+    try:
+        records = await asyncio.to_thread(onedrive_service.list_files)
+        count = await persist_files(records)
+        synced_ids = [item["id"] for item in records]
+        # Scope availability update to onedrive source and this drive_id
+        await db.files.update_many(
+            {"source": "onedrive", "drive_id": onedrive_service.drive_id,
+             "file_id": {"$nin": synced_ids}},
+            {"$set": {"available": False}},
+        )
+        await db.files.update_many(
+            {"source": "onedrive", "drive_id": onedrive_service.drive_id,
+             "file_id": {"$in": synced_ids}},
+            {"$set": {"available": True, "drive_id": onedrive_service.drive_id}},
+        )
+        await record_audit(db, current_user.user_id, current_user.role, "onedrive.files.synced",
+                           "onedrive_drive", onedrive_service.drive_id, "success",
+                           metadata={"file_count": count},
+                           client_ip=request.client.host if request.client else None)
+        return {"synchronized": count}
+    except RuntimeError as rerr:
+        logger.warning("OneDrive configuration error during sync: %s", rerr)
+        await record_audit(db, current_user.user_id, current_user.role, "onedrive.files.synced",
+                           "onedrive_drive", onedrive_service.drive_id or None, "failure",
+                           reason=str(rerr),
+                           client_ip=request.client.host if request.client else None)
+        raise HTTPException(status_code=503, detail=str(rerr)) from rerr
+    except Exception as exc:
+        logger.exception("OneDrive metadata synchronization failed")
+        await record_audit(db, current_user.user_id, current_user.role, "onedrive.files.synced",
+                           "onedrive_drive", onedrive_service.drive_id or None, "failure",
+                           reason="Provider synchronization failed",
+                           client_ip=request.client.host if request.client else None)
+        raise HTTPException(status_code=502, detail="OneDrive synchronization failed") from exc
 
 
 class OfflineAnalysisRequest(BaseModel):
@@ -188,12 +247,12 @@ async def get_analysis_summary(
 
 
 @router.get("/files/{file_id}/download")
-async def download_drive_file(
+async def download_cloud_file(
     file_id: str,
     request: Request,
     current_user: UserModel = Depends(get_current_active_user),
 ):
-    """Backend-mediated download. ADMIN/USER only; never redirects to Drive."""
+    """Backend-mediated download. ADMIN/USER only; never redirects to cloud providers."""
     db = get_database()
     if db is None:
         raise HTTPException(status_code=503, detail="Database not connected")
@@ -204,22 +263,38 @@ async def download_drive_file(
         raise HTTPException(status_code=403, detail="Your role is not permitted to download files")
     if not file_id or len(file_id) > 256 or any(c in file_id for c in "/\\"):
         raise HTTPException(status_code=400, detail="Invalid file ID")
-    file = await db.files.find_one({"file_id": file_id, "source": "google_drive", "available": {"$ne": False}})
+    file = await db.files.find_one({"file_id": file_id, "available": {"$ne": False}})
     if not file:
         raise HTTPException(status_code=404, detail="File not found")
+
+    source = file.get("source", "google_drive")
+    if current_user.role != "ADMIN":
+        container_id = file.get("drive_id") if source == "onedrive" else file.get("folder_id")
+        user_email = (current_user.email or "").lower()
+        file_owner = (file.get("owner_email") or "").lower()
+        if not container_id and (not user_email or file_owner != user_email):
+            await record_audit(db, current_user.user_id, current_user.role, "file.download",
+                               "file", file_id, "denied", reason="Not authorized to access file",
+                               client_ip=request.client.host if request.client else None)
+            raise HTTPException(status_code=404, detail="File not found")
+
     try:
-        content, content_type = await asyncio.to_thread(drive_service.download_file, file_id)
+        if source == "onedrive":
+            provider_id = file.get("provider_file_id") or file_id
+            content, content_type = await asyncio.to_thread(onedrive_service.download_file, provider_id)
+        else:
+            content, content_type = await asyncio.to_thread(drive_service.download_file, file_id)
     except RuntimeError as rerr:
-        logger.warning("Google Drive configuration error during download: %s", rerr)
+        logger.warning("%s configuration error during download: %s", source, rerr)
         await record_audit(db, current_user.user_id, current_user.role, "file.download",
                            "file", file_id, "failure", reason=str(rerr),
                            client_ip=request.client.host if request.client else None)
         raise HTTPException(status_code=503, detail=str(rerr)) from rerr
     except ValueError as verr:
-        logger.warning("Google Drive invalid download request: %s", verr)
+        logger.warning("%s invalid download request: %s", source, verr)
         raise HTTPException(status_code=400, detail=str(verr)) from verr
     except Exception as exc:
-        logger.exception("Google Drive download failed for file ID %s", file_id)
+        logger.exception("%s download failed for file ID %s", source, file_id)
         await record_audit(db, current_user.user_id, current_user.role, "file.download",
                            "file", file_id, "failure", reason="Provider download failed",
                            client_ip=request.client.host if request.client else None)
@@ -229,10 +304,10 @@ async def download_drive_file(
     timestamp = datetime.now(timezone.utc)
     event = EventModel(
         event_id=event_id, event_type="file.download", user_id=current_user.user_id,
-        source="sensitive_files", saas_app="google_drive", action=ActionEnum.DOWNLOAD,
+        source="sensitive_files", saas_app=source, action=ActionEnum.DOWNLOAD,
         resource_id=file_id, resource_name=str(file.get("name", ""))[:256],
         timestamp=timestamp, metadata={"file_type": file.get("mime_type"), "outcome": "success",
-                                       "endpoint": "/api/files/{file_id}/download"},
+                                       "endpoint": "/api/files/{file_id}/download", "source": source},
     )
     try:
         inserted = await log_event(event)
@@ -276,8 +351,9 @@ async def get_file(
     file = await db.files.find_one({"file_id": file_id})
     if not file:
         raise HTTPException(status_code=404, detail="File not found")
+    container_id = file.get("folder_id") or file.get("drive_id")
     if file.get("available") is False or (
-        not file.get("folder_id") and current_user.role != "ADMIN"
+        not container_id and current_user.role != "ADMIN"
         and (not current_user.email or (file.get("owner_email") or "").lower() != str(current_user.email).lower())
     ):
         raise HTTPException(status_code=404, detail="File not found")
@@ -298,8 +374,9 @@ async def get_file_pii_findings(
     file = await db.files.find_one({"file_id": file_id})
     if not file:
         raise HTTPException(status_code=404, detail="File not found")
+    container_id = file.get("folder_id") or file.get("drive_id")
     if file.get("available") is False or (
-        not file.get("folder_id") and current_user.role != "ADMIN"
+        not container_id and current_user.role != "ADMIN"
         and (not current_user.email or (file.get("owner_email") or "").lower() != str(current_user.email).lower())
     ):
         raise HTTPException(status_code=404, detail="File not found")
@@ -324,8 +401,9 @@ async def get_similar_files(
     file = await db.files.find_one({"file_id": file_id})
     if not file:
         raise HTTPException(status_code=404, detail="File not found")
+    container_id = file.get("folder_id") or file.get("drive_id")
     if file.get("available") is False or (
-        not file.get("folder_id") and current_user.role != "ADMIN"
+        not container_id and current_user.role != "ADMIN"
         and (not current_user.email or (file.get("owner_email") or "").lower() != str(current_user.email).lower())
     ):
         raise HTTPException(status_code=404, detail="File not found")
