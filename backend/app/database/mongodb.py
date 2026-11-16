@@ -229,22 +229,26 @@ async def ensure_initial_admin() -> None:
             await db_client.db.users.insert_one(admin_doc)
             logger.info("Auto-provisioned initial administrator '%s'", admin_email)
         elif getattr(settings, "AUTO_SYNC_ADMIN_CREDENTIALS", False):
-            hashed = bcrypt.hashpw(
-                admin_password.encode("utf-8")[:72],
-                bcrypt.gensalt(rounds=12)
-            ).decode("ascii")
-            updates = {
-                "email": admin_email,
-                "role": "ADMIN",
-                "is_active": True,
-                "hashed_password": hashed,
-                "must_change_password": True,
-            }
-            await db_client.db.users.update_one(
-                {"_id": existing_admin["_id"]},
-                {"$set": updates}
-            )
-            logger.info("Synchronized administrator credentials for '%s'", admin_email)
+            # Never overwrite credentials if the administrator already updated their temporary password
+            if existing_admin.get("must_change_password") is False:
+                logger.info("Administrator '%s' has already changed temporary password; preserving custom credentials", admin_email)
+            else:
+                hashed = bcrypt.hashpw(
+                    admin_password.encode("utf-8")[:72],
+                    bcrypt.gensalt(rounds=12)
+                ).decode("ascii")
+                updates = {
+                    "email": admin_email,
+                    "role": "ADMIN",
+                    "is_active": True,
+                    "hashed_password": hashed,
+                    "must_change_password": True,
+                }
+                await db_client.db.users.update_one(
+                    {"_id": existing_admin["_id"]},
+                    {"$set": updates}
+                )
+                logger.info("Synchronized administrator credentials for '%s'", admin_email)
     except Exception as exc:
         logger.warning("Could not auto-provision initial administrator: %s", exc)
 

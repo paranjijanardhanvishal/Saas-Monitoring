@@ -32,7 +32,7 @@ export function setAuthToken(token) {
 const api = axios.create({
   baseURL: API_BASE_URL,
   withCredentials: true,
-  timeout: 30000,
+  timeout: 60000,
   headers: { Accept: 'application/json' },
 });
 
@@ -54,9 +54,25 @@ api.interceptors.request.use((config) => {
 
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
+  async (error) => {
+    const config = error?.config;
     const status = error?.response?.status;
-    const url = error?.config?.url || '';
+    const method = (config?.method || 'get').toUpperCase();
+    const url = config?.url || '';
+
+    // Cold-start & transient failure retry ONLY for idempotent GET requests
+    const isTransient =
+      error?.code === 'ECONNABORTED' ||
+      error?.code === 'ERR_NETWORK' ||
+      [502, 503, 504].includes(status);
+
+    if (config && method === 'GET' && isTransient && (config.__retryCount || 0) < 2) {
+      config.__retryCount = (config.__retryCount || 0) + 1;
+      const backoffMs = config.__retryCount * 1500;
+      await new Promise((resolve) => setTimeout(resolve, backoffMs));
+      return api(config);
+    }
+
     const isSessionProbe = url.includes('/auth/login') || url.includes('/auth/me');
     if (status === 401 && !isSessionProbe && typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent(AUTH_EXPIRED_EVENT));
@@ -78,7 +94,7 @@ export function errorMessage(error, fallback = 'Request failed. Please try again
     return detail.message;
   }
   if (error?.code === 'ECONNABORTED' || error?.response?.status === 504) {
-    return 'The backend server took too long to respond (cloud container cold start). Please click sign in again.';
+    return 'The backend server took too long to respond (cloud container cold start). Please try again in a few moments.';
   }
   if (error?.code === 'ERR_NETWORK') {
     return 'Cannot reach the backend API. The cloud server may still be spinning up; please try again in a few seconds.';
@@ -274,6 +290,7 @@ export const getFiles = (params) => get('/files', params);
 export const getDriveStatus = () => get('/files/drive/status');
 export const syncDriveFiles = () => post('/files/sync', {});
 export const runOfflineAnalysis = (payload = {}) => post('/files/analyze-offline', payload);
+export const getOfflineAnalysisJob = (jobId) => get(`/files/analysis-jobs/${encodeURIComponent(jobId)}`);
 export const getFileAnalysisSummary = () => get('/files/analysis-summary');
 export const getSimilarFiles = (fileId, params) =>
   get(`/files/${encodeURIComponent(fileId)}/similar`, params);

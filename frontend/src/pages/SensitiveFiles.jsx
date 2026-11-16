@@ -25,6 +25,7 @@ import {
   getFileUserRelationships,
   getFiles,
   getOcrStatus,
+  getOfflineAnalysisJob,
   getPrivacyFindings,
   getRelationshipSummary,
   getSimilarFiles,
@@ -191,14 +192,52 @@ export default function SensitiveFiles() {
     setOfflineNotice('');
     setError('');
     try {
-      const res = await runOfflineAnalysis({ force });
-      setOfflineNotice(
-        `Offline analysis complete: ${res.processed} processed, ${res.skipped} unchanged (skipped), ${res.failed} failed. Sensitive files: ${res.sensitive_count}.`
-      );
-      await load({ silent: true });
+      const res = await runOfflineAnalysis({ force, background: true });
+      if (res?.job_id && res?.status === 'RUNNING') {
+        setOfflineNotice(res.message || 'Offline content analysis initiated in background. Tracking progress…');
+        let attempts = 0;
+        const interval = setInterval(async () => {
+          attempts += 1;
+          try {
+            const job = await getOfflineAnalysisJob(res.job_id);
+            if (job?.status === 'COMPLETED') {
+              clearInterval(interval);
+              setOfflineNotice(
+                `Offline analysis complete: ${job.processed || 0} processed, ${job.skipped || 0} unchanged (skipped), ${job.failed || 0} failed. Sensitive files: ${job.sensitive_count || 0}.`
+              );
+              setOfflineBusy(false);
+              await load({ silent: true });
+            } else if (job?.status === 'FAILED') {
+              clearInterval(interval);
+              setError(`Offline analysis job failed: ${job.error || 'Execution failure'}`);
+              setOfflineBusy(false);
+              await load({ silent: true });
+            } else if (attempts >= 40) {
+              clearInterval(interval);
+              setOfflineNotice('Offline analysis is continuing in the background. Refresh in a moment for final metrics.');
+              setOfflineBusy(false);
+              await load({ silent: true });
+            } else {
+              setOfflineNotice(
+                `Analyzing cloud content in background… (${job?.processed || 0} processed, ${job?.failed || 0} failed)`
+              );
+            }
+          } catch {
+            if (attempts >= 10) {
+              clearInterval(interval);
+              setOfflineBusy(false);
+            }
+          }
+        }, 2500);
+      } else {
+        setOfflineNotice(
+          `Offline analysis complete: ${res.processed || 0} processed, ${res.skipped || 0} unchanged (skipped), ${res.failed || 0} failed. Sensitive files: ${res.sensitive_count || 0}.`
+        );
+        setOfflineBusy(false);
+        await load({ silent: true });
+      }
     } catch (err) {
       setError(errorMessage(err, 'Offline cloud analysis failed.'));
-    } finally {
       setOfflineBusy(false);
     }
   };

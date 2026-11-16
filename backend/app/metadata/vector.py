@@ -211,6 +211,42 @@ class VectorMetadataService:
 
         return True
 
+    async def hydrate_from_mongodb(self, db) -> int:
+        """Hydrate in-memory vector index from persisted MongoDB records after backend restart.
+        
+        Reads only sanitized metadata vectors and derived metrics; never raw file contents or PII.
+        """
+        if db is None:
+            return 0
+        try:
+            cursor = db.files.find(
+                {"analysis_status": "COMPLETED", "available": {"$ne": False}},
+                {"file_id": 1, "name": 1, "mime_type": 1, "sensitivity_tier": 1, "sensitivity_score": 1, "sharing_scope": 1, "vector_tokens": 1, "category": 1, "entities_summary": 1}
+            )
+            files = await cursor.to_list(length=1000)
+            hydrated = 0
+            for doc in files:
+                fid = doc.get("file_id")
+                if not fid:
+                    continue
+                v_text = doc.get("vector_tokens") or build_metadata_vector_text(doc)
+                safe_meta = {
+                    "file_id": fid,
+                    "name": doc.get("name", ""),
+                    "mime_type": doc.get("mime_type", ""),
+                    "sensitivity_tier": doc.get("sensitivity_tier") or doc.get("category") or "SAFE",
+                    "sensitivity_score": doc.get("sensitivity_score", 0),
+                    "sharing_scope": doc.get("sharing_scope", "private"),
+                }
+                self.local.insert(fid, v_text, safe_meta)
+                hydrated += 1
+            if hydrated:
+                logger.info("Hydrated %d metadata vectors from MongoDB into local vector store", hydrated)
+            return hydrated
+        except Exception as exc:
+            logger.warning("Failed to hydrate vector index from MongoDB: %s", exc)
+            return 0
+
     def search_similar(self, file_id: str, top_k: int = 5) -> List[Dict[str, Any]]:
         """Find files with similar metadata vectors."""
         # Use existing vector or build from stored metadata

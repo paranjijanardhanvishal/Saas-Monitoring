@@ -18,7 +18,12 @@ from app.models.event import ActionEnum, EventModel
 from app.services.google_drive import drive_service
 from app.services.monitoring import log_event, persist_files
 from app.services.audit import record_audit
-from app.services.offline_analysis import get_offline_analysis_summary, run_offline_analysis
+from app.services.offline_analysis import (
+    get_analysis_job,
+    get_offline_analysis_summary,
+    run_offline_analysis,
+    start_offline_analysis_job,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -117,6 +122,7 @@ async def sync_drive_files(
 class OfflineAnalysisRequest(BaseModel):
     file_ids: Optional[List[str]] = None
     force: bool = False
+    background: bool = True
 
 
 @router.post("/files/analyze-offline")
@@ -133,6 +139,13 @@ async def trigger_offline_analysis(
 
     req = payload or OfflineAnalysisRequest()
     try:
+        if req.background:
+            job = await start_offline_analysis_job(
+                user_id=current_user.user_id,
+                file_ids=req.file_ids,
+                force_reanalyze=req.force,
+            )
+            return job
         summary = await run_offline_analysis(
             user_id=current_user.user_id,
             file_ids=req.file_ids,
@@ -142,6 +155,21 @@ async def trigger_offline_analysis(
     except Exception as exc:
         logger.exception("Offline analysis failed to execute")
         raise HTTPException(status_code=500, detail=f"Offline analysis failed: {exc}") from exc
+
+
+@router.get("/files/analysis-jobs/{job_id}")
+async def get_offline_analysis_job_status(
+    job_id: str,
+    current_user: UserModel = Depends(get_current_active_user),
+):
+    """Get status and progress of an offline analysis background job."""
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database not connected")
+    job = await get_analysis_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Analysis job not found")
+    return job
 
 
 @router.get("/files/analysis-summary")

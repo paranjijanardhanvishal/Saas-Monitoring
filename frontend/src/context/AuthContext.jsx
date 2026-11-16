@@ -28,12 +28,14 @@ export function AuthProvider({ children }) {
         setUser(current);
         setSessionMessage('');
       }
-    } catch {
+    } catch (err) {
       if (!mounted.current) return;
-      setUser(null);
-      // Silently treat failure during initial bootstrap as no active session.
-      // An unauthenticated visitor opening the app should never see "session expired"
-      // or "backend did not respond in time" before attempting to log in.
+      const status = err?.response?.status;
+      // Only clear user on explicit 401 Unauthorized.
+      // Transient cold-start failures (timeout, network, 502, 503, 504) must NEVER clear valid session state.
+      if (status === 401) {
+        setUser(null);
+      }
     } finally {
       if (mounted.current) setLoading(false);
     }

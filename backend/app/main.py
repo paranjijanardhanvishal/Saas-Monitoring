@@ -24,7 +24,7 @@ from app.api import (
     users,
 )
 from app.core.config import settings
-from app.database.mongodb import close_mongo_connection, connect_to_mongo
+from app.database.mongodb import close_mongo_connection, connect_to_mongo, get_database
 
 logging.basicConfig(
     level=logging.INFO,
@@ -36,6 +36,13 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await connect_to_mongo()
+    db = get_database()
+    if db is not None:
+        try:
+            from app.metadata.vector import vector_service
+            await vector_service.hydrate_from_mongodb(db)
+        except Exception as exc:
+            logger.warning("Could not hydrate vectors on startup: %s", exc)
     if settings.APP_ENV != "test":
         import threading
         from app.privacy.ocr import _resolve_tesseract_cmd
