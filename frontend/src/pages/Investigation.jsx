@@ -12,7 +12,13 @@ import {
   Target,
   Users,
 } from 'lucide-react';
-import { errorMessage, investigateEvent, investigateUser, searchUsers } from '../api';
+import {
+  errorMessage,
+  getUserFileRelationships,
+  investigateEvent,
+  investigateUser,
+  searchUsers,
+} from '../api';
 import {
   Badge,
   btnPrimary,
@@ -50,6 +56,7 @@ export default function Investigation() {
 
   const [investigatedId, setInvestigatedId] = useState('');
   const [investigation, setInvestigation] = useState(null);
+  const [userFiles, setUserFiles] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -85,9 +92,14 @@ export default function Investigation() {
     setLoading(true);
     setError('');
     setInvestigation(null);
+    setUserFiles(null);
     try {
-      const data = await investigateUser(userId, 50);
+      const [data, filesData] = await Promise.all([
+        investigateUser(userId, 50),
+        getUserFileRelationships(userId).catch(() => null),
+      ]);
       setInvestigation(data);
+      setUserFiles(filesData);
     } catch (err) {
       setError(errorMessage(err, 'Could not build the investigation view.'));
     } finally {
@@ -425,6 +437,60 @@ export default function Investigation() {
               )}
             </Panel>
           </div>
+
+          <Panel
+            title={`Files accessed & activity (${userFiles?.files?.length || 0})`}
+            subtitle="Relationship mapping derived from monitored file events and downloads"
+            bodyClassName="p-0"
+          >
+            {!userFiles || (userFiles.files || []).length === 0 ? (
+              <p className="p-4 text-xs text-slate-500">No file interactions recorded for this user.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="soc-table">
+                  <thead>
+                    <tr>
+                      <th>File Name</th>
+                      <th>Sensitivity</th>
+                      <th>Interactions</th>
+                      <th>Actions</th>
+                      <th>First Active</th>
+                      <th>Last Active</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {userFiles.files.map((file) => (
+                      <tr key={file.file_id}>
+                        <td>
+                          <p className="font-semibold text-slate-200">{file.name}</p>
+                          <p className="text-[10px] text-slate-500">{file.file_id} {file.mime_type ? `· ${file.mime_type}` : ''}</p>
+                        </td>
+                        <td>
+                          <Badge tone={file.sensitivity_tier === 'HIGH_RISK' ? 'red' : file.sensitivity_tier === 'SENSITIVE' ? 'amber' : 'green'}>
+                            {file.sensitivity_tier || 'SAFE'}
+                          </Badge>
+                        </td>
+                        <td className="font-mono text-xs text-slate-300">
+                          {file.total_interactions}
+                        </td>
+                        <td>
+                          <div className="flex flex-wrap gap-1 text-[10px]">
+                            {Object.entries(file.actions || {}).map(([act, count]) => (
+                              <span key={act} className="rounded bg-slate-800 px-1.5 py-0.5 font-mono text-slate-300">
+                                {act}: {count}
+                              </span>
+                            ))}
+                          </div>
+                        </td>
+                        <td className="whitespace-nowrap text-slate-400">{file.first_activity ? formatDateTime(file.first_activity) : '—'}</td>
+                        <td className="whitespace-nowrap text-slate-400">{file.last_activity ? formatDateTime(file.last_activity) : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Panel>
 
           <Panel title={`Recent events (${events.length})`} bodyClassName="p-0">
             {events.length === 0 ? (

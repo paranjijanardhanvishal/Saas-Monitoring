@@ -18,6 +18,7 @@ from app.api import (
     incidents,
     investigation,
     privacy,
+    relationships,
     risk,
     system,
     users,
@@ -92,6 +93,7 @@ app.include_router(agent.router, prefix=settings.API_V1_STR + "/agent", tags=["a
 app.include_router(dashboard.router, prefix=settings.API_V1_STR, tags=["dashboard"])
 app.include_router(demo.router, prefix=settings.API_V1_STR + "/demo", tags=["demo"])
 app.include_router(investigation.router, prefix=settings.API_V1_STR, tags=["investigation"])
+app.include_router(relationships.router, prefix=settings.API_V1_STR, tags=["relationships"])
 app.include_router(system.router, prefix=settings.API_V1_STR, tags=["system"])
 
 

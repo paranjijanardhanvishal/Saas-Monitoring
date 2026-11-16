@@ -14,6 +14,7 @@ import {
   ShieldAlert,
   ShieldCheck,
   Sparkles,
+  Users,
 } from 'lucide-react';
 import {
   analyzeText,
@@ -21,9 +22,11 @@ import {
   errorMessage,
   getFileAnalysisSummary,
   getFilePiiFindings,
+  getFileUserRelationships,
   getFiles,
   getOcrStatus,
   getPrivacyFindings,
+  getRelationshipSummary,
   getSimilarFiles,
   runOfflineAnalysis,
   scanOcrDocument,
@@ -73,6 +76,8 @@ export default function SensitiveFiles() {
   const [selectedFile, setSelectedFile] = useState(null);
   const [fileFindings, setFileFindings] = useState([]);
   const [similarFiles, setSimilarFiles] = useState([]);
+  const [fileRelationships, setFileRelationships] = useState(null);
+  const [relSummary, setRelSummary] = useState(null);
   const [fileLoading, setFileLoading] = useState(false);
   const [similarLoading, setSimilarLoading] = useState(false);
   const [fileError, setFileError] = useState('');
@@ -95,14 +100,16 @@ export default function SensitiveFiles() {
       else setLoading(true);
       setError('');
       try {
-        const [fileResult, findingResult, summaryResult] = await Promise.all([
+        const [fileResult, findingResult, summaryResult, relsResult] = await Promise.all([
           getFiles({ limit: 100 }),
           getPrivacyFindings({ limit: 200, category: findingCategory || undefined }),
           getFileAnalysisSummary().catch(() => null),
+          getRelationshipSummary().catch(() => null),
         ]);
         setFiles(Array.isArray(fileResult) ? fileResult : []);
         setFindings(Array.isArray(findingResult) ? findingResult : []);
         if (summaryResult) setAnalysisSummary(summaryResult);
+        if (relsResult) setRelSummary(relsResult);
       } catch (err) {
         setError(errorMessage(err, 'Could not load file metadata or PII findings.'));
       } finally {
@@ -145,18 +152,21 @@ export default function SensitiveFiles() {
     setSelectedFile(file);
     setFileFindings([]);
     setSimilarFiles([]);
+    setFileRelationships(null);
     setFileError('');
     setFileLoading(true);
     setSimilarLoading(true);
     try {
-      const [fFindings, simFiles] = await Promise.all([
+      const [fFindings, simFiles, relData] = await Promise.all([
         getFilePiiFindings(file.file_id).catch(() => []),
         getSimilarFiles(file.file_id).catch(() => []),
+        getFileUserRelationships(file.file_id).catch(() => null),
       ]);
       setFileFindings(Array.isArray(fFindings) ? fFindings : []);
       setSimilarFiles(Array.isArray(simFiles) ? simFiles : []);
+      setFileRelationships(relData);
     } catch (err) {
-      setFileError(errorMessage(err, 'Could not load findings for this file.'));
+      setFileError(errorMessage(err, 'Could not load findings or access history for this file.'));
     } finally {
       setFileLoading(false);
       setSimilarLoading(false);
@@ -283,6 +293,7 @@ export default function SensitiveFiles() {
       <div className="flex gap-1 border-b border-slate-800">
         {[
           ['files', `Cloud files (${files.length})`],
+          ['relationships', `Access relationships (${relSummary?.total_relationships || 0})`],
           ['findings', `PII findings (${findings.length})`],
         ].map(([key, label]) => (
           <button
@@ -519,6 +530,79 @@ export default function SensitiveFiles() {
             ) : null}
           </Panel>
         </div>
+      ) : tab === 'relationships' ? (
+        <Panel
+          title="File-to-User & User-to-File Relationship Mapping"
+          subtitle="Monitored access, download, and modification interactions derived from real event logs"
+          bodyClassName="p-4 space-y-4"
+        >
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/40 p-3">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Total Interactions</p>
+              <p className="mt-1 text-xl font-bold text-slate-900 dark:text-white">{relSummary?.total_relationships || 0}</p>
+            </div>
+            <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/40 p-3">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Active Files</p>
+              <p className="mt-1 text-xl font-bold text-blue-500">{relSummary?.unique_files_count || 0}</p>
+            </div>
+            <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/40 p-3">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Interacting Users</p>
+              <p className="mt-1 text-xl font-bold text-emerald-500">{relSummary?.unique_users_count || 0}</p>
+            </div>
+            <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/40 p-3">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Action Types</p>
+              <p className="mt-1 text-xs font-mono text-slate-700 dark:text-slate-300">
+                {Object.entries(relSummary?.action_breakdown || {}).map(([a, c]) => `${a}:${c}`).join('  ') || '—'}
+              </p>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="soc-table">
+              <thead>
+                <tr>
+                  <th>Cloud File</th>
+                  <th>Sensitivity</th>
+                  <th>Owner</th>
+                  <th>Mapped Users</th>
+                  <th className="text-right">Inspect Relationship</th>
+                </tr>
+              </thead>
+              <tbody>
+                {files.map((file) => (
+                  <tr key={file.file_id}>
+                    <td>
+                      <p className="font-semibold text-slate-900 dark:text-slate-100">{file.name}</p>
+                      <p className="text-[10px] text-slate-500">{file.file_id} · {file.mime_type}</p>
+                    </td>
+                    <td>
+                      <Badge tone={CATEGORY_TONE[file.sensitivity_tier] || 'neutral'}>
+                        {file.sensitivity_tier || 'SAFE'}
+                      </Badge>
+                    </td>
+                    <td className="text-xs text-slate-600 dark:text-slate-400">
+                      {file.owner_email || '—'}
+                    </td>
+                    <td>
+                      <span className="text-xs text-slate-500 dark:text-slate-400">
+                        Select file to map user access interactions
+                      </span>
+                    </td>
+                    <td className="text-right">
+                      <button
+                        type="button"
+                        className={btnSecondary}
+                        onClick={() => openFile(file)}
+                      >
+                        Inspect
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Panel>
       ) : (
         <Panel
           title="PII findings"
@@ -713,6 +797,56 @@ export default function SensitiveFiles() {
                       >
                         View
                       </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+
+            {/* Associated Users & Access Activity (File-to-User Mapping) */}
+            <section className="border-t border-slate-200 dark:border-slate-800 pt-4">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                  Associated Users & Activity ({fileRelationships?.users?.length || 0})
+                </h3>
+                {fileRelationships?.total_events > 0 && (
+                  <span className="text-[10px] text-slate-500">
+                    {fileRelationships.total_events} recorded interaction{fileRelationships.total_events === 1 ? '' : 's'}
+                  </span>
+                )}
+              </div>
+              {fileLoading ? (
+                <LoadingState label="Mapping user relationships…" />
+              ) : !fileRelationships || (fileRelationships.users || []).length === 0 ? (
+                <p className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/40 p-3 text-xs text-slate-500">
+                  No monitored user interactions recorded yet for this file. Real downloads and proxy accesses are mapped dynamically.
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {fileRelationships.users.map((u) => (
+                    <div key={u.user_id} className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/40 p-3">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <span className="text-xs font-semibold text-slate-900 dark:text-slate-100">{u.display_name}</span>
+                          {u.is_owner && (
+                            <span className="ml-1.5 rounded bg-blue-500/10 px-1.5 py-0.5 text-[9px] font-semibold text-blue-500">
+                              Owner
+                            </span>
+                          )}
+                          <p className="text-[10px] text-slate-500">{u.user_id} · {u.business_role}</p>
+                        </div>
+                        <Badge tone="blue">{u.total_interactions} interaction{u.total_interactions === 1 ? '' : 's'}</Badge>
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-1 text-[10px]">
+                        {Object.entries(u.actions || {}).map(([act, count]) => (
+                          <span key={act} className="rounded bg-slate-200 dark:bg-slate-800 px-1.5 py-0.5 font-mono text-slate-700 dark:text-slate-300">
+                            {act}: {count}
+                          </span>
+                        ))}
+                      </div>
+                      {u.last_activity && (
+                        <p className="mt-1 text-[10px] text-slate-500">Last activity: {formatDateTime(u.last_activity)}</p>
+                      )}
                     </div>
                   ))}
                 </div>

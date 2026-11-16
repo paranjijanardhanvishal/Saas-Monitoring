@@ -294,6 +294,15 @@ export const getFile = (fileId) => get(`/files/${encodeURIComponent(fileId)}`);
 export const getFilePiiFindings = (fileId) =>
   get(`/files/${encodeURIComponent(fileId)}/pii-findings`);
 
+/* -------------------------------------------------------- relationships */
+
+export const getFileUserRelationships = (fileId) =>
+  get(`/relationships/files/${encodeURIComponent(fileId)}`);
+export const getUserFileRelationships = (userId) =>
+  get(`/relationships/users/${encodeURIComponent(userId)}`);
+export const getRelationshipSummary = () =>
+  get('/relationships/summary');
+
 /* -------------------------------------------------------------- behavior */
 
 export const getBehaviorProfiles = (params) => get('/behavior/profiles', params);
