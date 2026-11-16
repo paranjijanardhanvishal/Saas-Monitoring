@@ -22,6 +22,7 @@ const RiskPosture = lazy(() => import('./pages/RiskPosture'));
 const Investigation = lazy(() => import('./pages/Investigation'));
 const Enforcement = lazy(() => import('./pages/Enforcement'));
 const SystemHealth = lazy(() => import('./pages/SystemHealth'));
+const Profile = lazy(() => import('./pages/Profile'));
 
 function FullPageLoader() {
   return (
@@ -124,6 +125,7 @@ function AppRoutes() {
         }
       >
         <Route path="/dashboard" element={<Overview />} />
+        <Route path="/profile" element={<Profile />} />
         <Route path="/risk-posture" element={<RiskPosture />} />
         <Route
           path="/live-activity"

@@ -18,8 +18,40 @@ def _serialize(document: dict[str, Any]) -> dict[str, Any]:
     return document
 
 
-@router.get("/dashboard/overview")
-async def dashboard_overview(current_user: UserModel = Depends(get_current_active_user)):
+async def _group_counts(collection: Any, match: dict, field: str) -> list[dict]:
+    """Aggregate category counts, with a lightweight fallback for test adapters."""
+    if hasattr(collection, "aggregate"):
+        return await collection.aggregate([
+            {"$match": match},
+            {"$group": {"_id": f"${field}", "count": {"$sum": 1}}},
+        ]).to_list(length=10)
+    documents = await collection.find(match).to_list(length=10000)
+    counts: dict[str, int] = {}
+    for document in documents:
+        value = document.get(field)
+        if value:
+            counts[value] = counts.get(value, 0) + 1
+    return [{"_id": key, "count": value} for key, value in counts.items()]
+
+
+async def _hourly_counts(collection: Any, match: dict) -> list[dict]:
+    if hasattr(collection, "aggregate"):
+        return await collection.aggregate([
+            {"$match": match},
+            {"$group": {"_id": {"$dateToString": {"format": "%Y-%m-%dT%H:00:00Z", "date": "$timestamp"}}, "count": {"$sum": 1}}},
+            {"$sort": {"_id": 1}},
+        ]).to_list(length=48)
+    documents = await collection.find(match).to_list(length=10000)
+    counts: dict[str, int] = {}
+    for document in documents:
+        timestamp = document.get("timestamp")
+        if isinstance(timestamp, datetime):
+            key = timestamp.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:00:00Z")
+            counts[key] = counts.get(key, 0) + 1
+    return [{"_id": key, "count": value} for key, value in sorted(counts.items())]
+
+
+async def _dashboard_overview(current_user: UserModel, personal: bool = False):
     """Role-scoped dashboard aggregates computed from live collections."""
     db = get_database()
     if db is None:
@@ -28,7 +60,7 @@ async def dashboard_overview(current_user: UserModel = Depends(get_current_activ
     now = datetime.now(timezone.utc)
     day_ago = now - timedelta(hours=24)
     week_ago = now - timedelta(days=7)
-    is_admin = current_user.role == "ADMIN"
+    is_admin = current_user.role == "ADMIN" and not personal
     scope: dict = {} if is_admin else {"user_id": current_user.user_id}
 
     def scoped(**extra: Any) -> dict:
@@ -62,16 +94,10 @@ async def dashboard_overview(current_user: UserModel = Depends(get_current_activ
         db.events.find_one(scoped(), sort=[("timestamp", -1)]),
         db.alerts.count_documents(scoped(status={"$nin": ["RESOLVED", "DISMISSED"]})),
         db.alerts.count_documents(scoped(timestamp={"$gte": day_ago})),
-        db.alerts.aggregate([
-            {"$match": scoped(status={"$nin": ["RESOLVED", "DISMISSED"]})},
-            {"$group": {"_id": "$severity", "count": {"$sum": 1}}},
-        ]).to_list(length=10),
+        _group_counts(db.alerts, scoped(status={"$nin": ["RESOLVED", "DISMISSED"]}), "severity"),
         db.incidents.count_documents(scoped(status={"$nin": ["RESOLVED", "DISMISSED"]})),
         db.incidents.count_documents(scoped(status={"$nin": ["RESOLVED", "DISMISSED"]}, severity="CRITICAL")),
-        db.risk_assessments.aggregate([
-            {"$match": scope},
-            {"$group": {"_id": "$risk_category", "count": {"$sum": 1}}},
-        ]).to_list(length=10),
+        _group_counts(db.risk_assessments, scope, "risk_category"),
         db.risk_assessments.find_one(scope, sort=[("timestamp", -1)]),
         db.devices.count_documents({**device_query, "status": "ACTIVE"}),
         db.devices.count_documents({**device_query, "status": "REVOKED"}),
@@ -83,18 +109,7 @@ async def dashboard_overview(current_user: UserModel = Depends(get_current_activ
                 {"last_heartbeat": {"$lt": stale_cutoff}},
             ],
         }),
-        db.events.aggregate([
-            {"$match": scoped(timestamp={"$gte": day_ago})},
-            {
-                "$group": {
-                    "_id": {
-                        "$dateToString": {"format": "%Y-%m-%dT%H:00:00Z", "date": "$timestamp"}
-                    },
-                    "count": {"$sum": 1},
-                }
-            },
-            {"$sort": {"_id": 1}},
-        ]).to_list(length=48),
+        _hourly_counts(db.events, scoped(timestamp={"$gte": day_ago})),
         db.events.find(scoped()).sort("timestamp", -1).limit(8).to_list(length=8),
         db.alerts.find(scoped()).sort("timestamp", -1).limit(8).to_list(length=8),
     )
@@ -173,3 +188,15 @@ async def dashboard_overview(current_user: UserModel = Depends(get_current_activ
         }
 
     return response
+
+
+@router.get("/dashboard/overview")
+async def dashboard_overview(current_user: UserModel = Depends(get_current_active_user)):
+    """Organization overview for administrators; personal overview for other roles."""
+    return await _dashboard_overview(current_user)
+
+
+@router.get("/dashboard/me")
+async def my_dashboard(current_user: UserModel = Depends(get_current_active_user)):
+    """Personal dashboard, including for administrators, never organization aggregates."""
+    return await _dashboard_overview(current_user, personal=True)

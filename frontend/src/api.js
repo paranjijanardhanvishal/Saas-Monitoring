@@ -147,6 +147,8 @@ export async function getMe() {
   return response.data;
 }
 
+export const updateMyProfile = (payload) => patch('/auth/profile', payload);
+
 export async function updateConsent(monitoringEnabled) {
   return post('/auth/consent', { monitoring_enabled: monitoringEnabled });
 }
@@ -172,6 +174,7 @@ export async function resetPassword(token, newPassword) {
 /* ------------------------------------------------------------- dashboard */
 
 export const getDashboardOverview = () => get('/dashboard/overview');
+export const getPersonalDashboard = () => get('/dashboard/me');
 
 /* ---------------------------------------------------------------- events */
 

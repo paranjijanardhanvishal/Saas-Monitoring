@@ -347,3 +347,23 @@ async def test_public_signup_duplicate_email_rejected(client, db):
     assert r2.status_code == 400
     assert "already exists" in r2.json()["detail"].lower()
 
+
+@pytest.mark.asyncio
+async def test_self_profile_update_cannot_change_access_controls(client, db):
+    await create_user("profile-user")
+    token = (await login(client, "profile-user"))["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    updated = await client.patch(
+        "/api/auth/profile",
+        json={"display_name": "Profile User", "full_name": "Profile Test User"},
+        headers=headers,
+    )
+    assert updated.status_code == 200
+    assert updated.json()["display_name"] == "Profile User"
+    assert updated.json()["full_name"] == "Profile Test User"
+    assert updated.json()["role"] == "USER"
+
+    stored = await db.users.find_one({"user_id": "profile-user"})
+    assert stored["role"] == "USER"
+

@@ -40,6 +40,13 @@ def _deny_restricted_directory_details(current_user: UserModel) -> None:
         )
 
 
+def _ensure_self_or_authorized_operator(current_user: UserModel, user_id: str) -> None:
+    """Users can see their own account but cannot browse another person's record."""
+    if current_user.user_id != user_id:
+        _deny_restricted_directory_details(current_user)
+        ensure_self_or_admin(current_user, user_id)
+
+
 @router.get("/users", response_model=List[UserResponse])
 async def get_users(
     limit: int = Query(50, ge=1, le=200),
@@ -324,8 +331,7 @@ async def get_user_directory(
 
 @router.get("/users/{user_id}", response_model=UserResponse)
 async def get_user(user_id: str, current_user: UserModel = Depends(get_current_user)):
-    _deny_restricted_directory_details(current_user)
-    ensure_self_or_admin(current_user, user_id)
+    _ensure_self_or_authorized_operator(current_user, user_id)
     db = get_database()
     if db is None:
         raise HTTPException(status_code=503, detail="Database not connected")
@@ -337,8 +343,7 @@ async def get_user(user_id: str, current_user: UserModel = Depends(get_current_u
 
 @router.get("/users/{user_id}/summary")
 async def get_user_summary(user_id: str, current_user: UserModel = Depends(get_current_user)):
-    _deny_restricted_directory_details(current_user)
-    ensure_self_or_admin(current_user, user_id)
+    _ensure_self_or_authorized_operator(current_user, user_id)
     db = get_database()
     if db is None:
         raise HTTPException(status_code=503, detail="Database not connected")
@@ -386,8 +391,7 @@ async def get_user_summary(user_id: str, current_user: UserModel = Depends(get_c
 
 @router.get("/users/{user_id}/devices")
 async def get_user_devices(user_id: str, current_user: UserModel = Depends(get_current_user)):
-    _deny_restricted_directory_details(current_user)
-    ensure_self_or_admin(current_user, user_id)
+    _ensure_self_or_authorized_operator(current_user, user_id)
     db = get_database()
     if db is None:
         raise HTTPException(status_code=503, detail="Database not connected")

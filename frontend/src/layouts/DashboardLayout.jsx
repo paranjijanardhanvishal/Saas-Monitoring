@@ -18,6 +18,7 @@ import {
   ShieldOff,
   Sun,
   Target,
+  UserRound,
   Users,
   X,
 } from 'lucide-react';
@@ -31,6 +32,7 @@ const NAV_GROUPS = [
     label: 'Overview',
     items: [
       { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
+      { name: 'My Security', path: '/profile', icon: UserRound },
       { name: 'Risk Posture', path: '/risk-posture', icon: Target },
       { name: 'Live Activity', path: '/live-activity', icon: Activity, adminOnly: true },
     ],
@@ -210,6 +212,7 @@ export default function DashboardLayout() {
           <Badge tone={consentTone(consentState)}>{consentState.replace('_', ' ')}</Badge>
         </Link>
         <div className="flex items-center gap-2.5 rounded-lg border border-slate-200 bg-slate-50/60 px-2.5 py-2 dark:border-slate-800/80 dark:bg-slate-900/30">
+          <Link to="/profile" className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md transition hover:text-blue-700 dark:hover:text-blue-300" title="Open my profile and security dashboard">
           <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-blue-700 dark:border dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
             {(user.display_name || user.user_id || '?').slice(0, 2).toUpperCase()}
           </span>
@@ -219,6 +222,7 @@ export default function DashboardLayout() {
             </p>
             <p className="truncate text-[10px] text-slate-500 dark:text-slate-400">{user.email || user.user_id}</p>
           </div>
+          </Link>
           <button
             type="button"
             onClick={() => {

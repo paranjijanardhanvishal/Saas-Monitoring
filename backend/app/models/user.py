@@ -29,6 +29,8 @@ class UserModel(BaseModel):
     user_id: str
     email: Optional[EmailStr] = None
     display_name: Optional[str] = None
+    full_name: Optional[str] = Field(default=None, max_length=160)
+    profile_information: Optional[str] = Field(default=None, max_length=500)
     role: Role = "USER"
     business_role: BusinessRole = "GENERAL"
     monitoring_enabled: ConsentState = "NOT_ASKED"
@@ -46,6 +48,8 @@ class UserResponse(BaseModel):
     user_id: str
     email: Optional[EmailStr] = None
     display_name: Optional[str] = None
+    full_name: Optional[str] = None
+    profile_information: Optional[str] = None
     role: Role = "USER"
     business_role: BusinessRole = "GENERAL"
     monitoring_enabled: ConsentState = "NOT_ASKED"
@@ -92,6 +96,14 @@ class UserUpdate(BaseModel):
     business_role: Optional[BusinessRole] = None
     is_active: Optional[bool] = None
     enforcement_status: Optional[EnforcementStatus] = None
+
+
+class SelfProfileUpdate(BaseModel):
+    """Fields an authenticated user may change without changing access controls."""
+
+    display_name: Optional[str] = Field(default=None, min_length=1, max_length=120)
+    full_name: Optional[str] = Field(default=None, max_length=160)
+    profile_information: Optional[str] = Field(default=None, max_length=500)
 
 
 class ForgotPasswordRequest(BaseModel):

@@ -24,6 +24,7 @@ from app.models.user import (
     ForgotPasswordRequest,
     PublicSignupRequest,
     ResetPasswordRequest,
+    SelfProfileUpdate,
     Token,
     UserCreate,
     UserModel,
@@ -320,6 +321,29 @@ async def logout(
 @router.get("/me", response_model=UserResponse)
 async def read_users_me(current_user: UserModel = Depends(get_current_user)):
     return UserResponse(**current_user.model_dump())
+
+
+@router.patch("/profile", response_model=UserResponse)
+async def update_my_profile(
+    payload: SelfProfileUpdate,
+    request: Request,
+    current_user: UserModel = Depends(get_current_user),
+):
+    """Update only safe self-service profile fields; identity and RBAC stay server-managed."""
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database not connected")
+    updates = payload.model_dump(exclude_unset=True)
+    if not updates:
+        return UserResponse(**current_user.model_dump())
+    await db.users.update_one({"user_id": current_user.user_id}, {"$set": updates})
+    await record_audit(
+        db, current_user.user_id, current_user.role, "profile.updated", "user",
+        current_user.user_id, "success", metadata={"updates": sorted(updates)},
+        client_ip=request.client.host if request.client else None,
+    )
+    updated = await db.users.find_one({"user_id": current_user.user_id})
+    return UserResponse(**updated)
 
 
 @router.post("/consent", response_model=UserResponse)
