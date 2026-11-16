@@ -74,7 +74,11 @@ async def analyze_risk(
     if anomaly_finding:
         ewma_score = normalize_behavioral_deviation(anomaly_finding.get("deviation", 1.0))
         role_score = float(anomaly_finding.get("role_anomaly_score", 0.0) or 0.0)
-        behavioral_score = max(ewma_score, role_score)
+        burst_score = 90.0 if (
+            anomaly_finding.get("burst_detected")
+            or "BURST" in str(anomaly_finding.get("anomaly_type", ""))
+        ) else 0.0
+        behavioral_score = max(ewma_score, role_score, burst_score)
 
     contextual = endpoint_score is not None or access_score is not None
     if not contextual:

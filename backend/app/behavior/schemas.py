@@ -13,6 +13,10 @@ class BehaviorProfileModel(BaseModel):
     user_id: str
     last_activity_timestamp: datetime
     ewma: Dict[str, float]
+    access_count: int = 0
+    download_count: int = 0
+    delete_count: int = 0
+    recent_downloads: List[datetime] = []
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class AnomalyFindingModel(BaseModel):
@@ -24,6 +28,9 @@ class AnomalyFindingModel(BaseModel):
     activity_rate: float
     ewma: Dict[str, float]
     deviation: float
+    window_deviations: Dict[str, float] = {}
+    burst_detected: bool = False
+    burst_count: int = 0
     
     is_anomaly: bool
     reason: str

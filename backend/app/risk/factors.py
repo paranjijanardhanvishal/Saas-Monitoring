@@ -43,9 +43,17 @@ def generate_risk_explanation(
             explanation.append(
                 f"Behavioral anomaly detected: {anomaly_finding.get('reason', 'Unknown anomaly')}"
             )
-            if anomaly_finding.get("anomaly_type") == "ACTIVITY_SPIKE":
+            anomaly_type = anomaly_finding.get("anomaly_type")
+            if anomaly_type == "ACTIVITY_SPIKE":
                 risk_factors.append("ACTIVITY_SPIKE")
-        else:
+            elif anomaly_type == "DOWNLOAD_BURST":
+                risk_factors.append("DOWNLOAD_BURST")
+            elif anomaly_type == "COMPOUND_BURST":
+                risk_factors.append("DOWNLOAD_BURST")
+                risk_factors.append("ACTIVITY_SPIKE")
+        if anomaly_finding.get("burst_detected") and "DOWNLOAD_BURST" not in risk_factors:
+            risk_factors.append("DOWNLOAD_BURST")
+        if not anomaly_finding.get("is_anomaly", False) and not anomaly_finding.get("burst_detected", False):
             explanation.append("Activity rate is consistent with historical baselines.")
     else:
         explanation.append("No behavioral anomaly history available for this event.")
