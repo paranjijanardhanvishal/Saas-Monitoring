@@ -72,6 +72,8 @@ async def create_alert(
         "updated_at": now,
         "acknowledged_at": None,
         "acknowledged_by": None,
+        "slack_delivery": None,
+        "slack_sent_at": None,
     }
     try:
         result = await db.alerts.insert_one(document)
@@ -128,6 +130,20 @@ async def create_alerts_from_risk(db, assessment: dict[str, Any]) -> list[dict[s
         evidence=evidence,
         dedupe_scope=assessment.get("event_id"),
     )
+
+    # Dispatch Slack notification with deduplication (HIGH / CRITICAL only)
+    if alert.get("slack_delivery") != "sent":
+        try:
+            from app.services.slack import send_slack_notification
+            slack_status = send_slack_notification(alert)
+            slack_update: dict[str, Any] = {"slack_delivery": slack_status}
+            if slack_status == "sent":
+                slack_update["slack_sent_at"] = datetime.now(timezone.utc)
+            if db is not None and alert.get("_id"):
+                await db.alerts.update_one({"_id": alert["_id"]}, {"$set": slack_update})
+            alert.update(slack_update)
+        except Exception as exc:
+            logger.warning("Slack notification dispatch failed safely: %s", exc)
 
     if category == "CRITICAL":
         await ensure_incident_for_alert(db, alert)
@@ -187,6 +203,9 @@ async def ensure_incident_for_alert(db, alert: dict[str, Any]) -> Optional[dict[
         "assigned_to": None,
         "evidence": alert.get("evidence", []),
         "notes": [],
+        "jira_issue_key": None,
+        "jira_delivery": None,
+        "jira_sent_at": None,
         "created_time": now,
         "updated_at": now,
         "response_history": ["Incident auto-created from critical alert"],
@@ -201,4 +220,22 @@ async def ensure_incident_for_alert(db, alert: dict[str, Any]) -> Optional[dict[
     }
     result = await db.incidents.insert_one(document)
     document["_id"] = result.inserted_id
+
+    # Dispatch Jira incident creation with deduplication
+    try:
+        from app.services.jira import create_jira_issue
+        jira_status, issue_key = create_jira_issue(document)
+        jira_update: dict[str, Any] = {"jira_delivery": jira_status}
+        if jira_status == "sent":
+            jira_update["jira_issue_key"] = issue_key
+            jira_update["jira_sent_at"] = now
+            if issue_key:
+                document["response_history"].append(f"Linked Jira issue {issue_key}")
+                jira_update["response_history"] = document["response_history"]
+        if db is not None and document.get("_id"):
+            await db.incidents.update_one({"_id": document["_id"]}, {"$set": jira_update})
+        document.update(jira_update)
+    except Exception as exc:
+        logger.warning("Jira incident creation failed safely: %s", exc)
+
     return document

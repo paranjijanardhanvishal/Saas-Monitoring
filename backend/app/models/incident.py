@@ -21,6 +21,9 @@ class IncidentBase(BaseModel):
     assigned_to: Optional[str] = None
     evidence: List[Dict[str, Any]] = []
     notes: List[Dict[str, Any]] = []
+    jira_issue_key: Optional[str] = None
+    jira_delivery: Optional[str] = None
+    jira_sent_at: Optional[datetime] = None
 
 
 class IncidentCreate(IncidentBase):

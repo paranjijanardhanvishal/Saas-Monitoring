@@ -51,6 +51,16 @@ class Settings(BaseSettings):
     AGENT_HEARTBEAT_STALE_SECONDS: int = 180
     AUTO_RISK_ENABLED: bool = True
 
+    # External Integrations (Slack notifications & Jira incident tracking)
+    SLACK_WEBHOOK_URL: str = ""
+    JIRA_BASE_URL: str = ""
+    JIRA_EMAIL: str = ""
+    JIRA_API_TOKEN: str = ""
+    JIRA_PROJECT_KEY: str = "SEC"
+    JIRA_ISSUE_TYPE: str = "Incident"
+    JIRA_API_URL: str = ""
+    JIRA_AUTH_TOKEN: str = ""
+
     # Email / Password Reset Service (optional)
     SMTP_HOST: str = ""
     SMTP_PORT: int = 587

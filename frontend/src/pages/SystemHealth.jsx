@@ -65,12 +65,15 @@ function formatUptime(seconds) {
   return `${secs}s`;
 }
 
-function ConfigBadge({ configured, label }) {
-  return (
-    <Badge tone={configured ? 'green' : 'neutral'}>
-      {configured ? `${label} configured` : `${label} not configured`}
-    </Badge>
-  );
+function IntegrationStatusBadge({ status, configured, label }) {
+  const normalizedStatus = status || (configured ? 'configured' : 'not_configured');
+  if (normalizedStatus === 'failed') {
+    return <Badge tone="red">{label}: Failed</Badge>;
+  }
+  if (normalizedStatus === 'configured' || configured) {
+    return <Badge tone="green">{label}: Configured</Badge>;
+  }
+  return <Badge tone="neutral">{label}: Not configured</Badge>;
 }
 
 export default function SystemHealth() {
@@ -361,24 +364,83 @@ export default function SystemHealth() {
             </Panel>
 
             <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-              <Panel title="Integrations" subtitle="Only environment-configured integrations are reported">
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-900/40 px-3 py-2">
-                    <span className="text-xs text-slate-300">Slack notifications</span>
-                    <ConfigBadge configured={Boolean(health.integrations?.slack_configured)} label="Slack" />
+              <Panel title="Integrations" subtitle="External notification and tracking services">
+                <div className="space-y-3">
+                  <div className="rounded-lg border border-slate-800 bg-slate-900/40 p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <p className="text-xs font-semibold text-slate-200">Slack Notifications</p>
+                        <p className="text-[11px] text-slate-400">Automated alerts for HIGH and CRITICAL security events</p>
+                      </div>
+                      <IntegrationStatusBadge
+                        status={health.integrations?.slack?.status}
+                        configured={Boolean(health.integrations?.slack_configured)}
+                        label="Slack"
+                      />
+                    </div>
+                    {health.integrations?.slack?.error && (
+                      <p className="mt-2 text-[10px] text-red-400">
+                        Error: {health.integrations.slack.error}
+                      </p>
+                    )}
+                    {health.integrations?.slack?.last_delivery_at && (
+                      <p className="mt-1 text-[10px] text-slate-500">
+                        Last delivery: {formatDateTime(health.integrations.slack.last_delivery_at)}
+                      </p>
+                    )}
                   </div>
-                  <div className="flex items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-900/40 px-3 py-2">
-                    <span className="text-xs text-slate-300">Jira ticketing</span>
-                    <ConfigBadge configured={Boolean(health.integrations?.jira_configured)} label="Jira" />
+
+                  <div className="rounded-lg border border-slate-800 bg-slate-900/40 p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <p className="text-xs font-semibold text-slate-200">Jira Incident Tracking</p>
+                        <p className="text-[11px] text-slate-400">
+                          Automatic ticket provisioning in project{' '}
+                          <span className="font-mono text-slate-300">
+                            {health.integrations?.jira?.project_key || 'SEC'}
+                          </span>
+                        </p>
+                      </div>
+                      <IntegrationStatusBadge
+                        status={health.integrations?.jira?.status}
+                        configured={Boolean(health.integrations?.jira_configured)}
+                        label="Jira"
+                      />
+                    </div>
+                    {health.integrations?.jira?.error && (
+                      <p className="mt-2 text-[10px] text-red-400">
+                        Error: {health.integrations.jira.error}
+                      </p>
+                    )}
+                    {health.integrations?.jira?.last_delivery_at && (
+                      <p className="mt-1 text-[10px] text-slate-500">
+                        Last delivery: {formatDateTime(health.integrations.jira.last_delivery_at)}
+                        {health.integrations.jira.last_issue_key && (
+                          <span className="ml-2 font-mono text-slate-300">
+                            ({health.integrations.jira.last_issue_key})
+                          </span>
+                        )}
+                      </p>
+                    )}
                   </div>
-                  <div className="flex items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-900/40 px-3 py-2">
-                    <span className="text-xs text-slate-300">Google Drive storage</span>
-                    <ConfigBadge configured={Boolean(health.integrations?.google_drive_configured)} label="Google Drive" />
+
+                  <div className="rounded-lg border border-slate-800 bg-slate-900/40 p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <p className="text-xs font-semibold text-slate-200">Google Drive Storage</p>
+                        <p className="text-[11px] text-slate-400">Workspace file analysis and audit synchronization</p>
+                      </div>
+                      <IntegrationStatusBadge
+                        status={health.integrations?.google_drive?.status}
+                        configured={Boolean(health.integrations?.google_drive_configured)}
+                        label="Google Drive"
+                      />
+                    </div>
                   </div>
                 </div>
                 <p className="mt-3 text-[11px] leading-relaxed text-slate-500">
-                  This panel reports configuration presence only. It does not perform an outbound delivery
-                  test, and no credentials are displayed.
+                  External services safely skip outbound delivery when not configured. Credentials and tokens
+                  are never exposed in responses or logs.
                 </p>
               </Panel>
 

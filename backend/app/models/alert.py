@@ -26,6 +26,8 @@ class AlertBase(BaseModel):
     dedupe_key: Optional[str] = None
     evidence: List[Dict[str, Any]] = []
     history: List[Dict[str, Any]] = []
+    slack_delivery: Optional[str] = None
+    slack_sent_at: Optional[datetime] = None
 
 
 class AlertCreate(AlertBase):

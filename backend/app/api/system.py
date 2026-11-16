@@ -12,6 +12,8 @@ from app.models.user import UserModel
 from app.privacy.ocr import get_ocr_status
 from app.privacy.presidio_analyzer import active_engine_name
 from app.services.google_drive import drive_service
+from app.services.jira import get_jira_status, is_jira_configured
+from app.services.slack import get_slack_status, is_slack_configured
 
 router = APIRouter()
 
@@ -97,9 +99,15 @@ async def system_health(current_user: UserModel = Depends(get_current_admin_user
             "audit_days": settings.AUDIT_RETENTION_DAYS,
         },
         "integrations": {
-            "slack_configured": bool(os.getenv("SLACK_WEBHOOK_URL")),
-            "jira_configured": bool(os.getenv("JIRA_API_URL") and os.getenv("JIRA_AUTH_TOKEN")),
+            "slack_configured": is_slack_configured(),
+            "jira_configured": is_jira_configured(),
             "google_drive_configured": drive_service.is_configured(),
+            "slack": get_slack_status(),
+            "jira": get_jira_status(),
+            "google_drive": {
+                "configured": drive_service.is_configured(),
+                "status": "configured" if drive_service.is_configured() else "not_configured",
+            },
         },
         "runtime": {
             "python": platform.python_version(),

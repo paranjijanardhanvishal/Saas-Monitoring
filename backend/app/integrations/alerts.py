@@ -1,14 +1,26 @@
-"""Optional Slack/Jira notifications.
+"""Modular Slack/Jira notifications and ticket creation.
 
 Integrations are disabled unless the required environment variables are set.
 Nothing is reported as delivered when no endpoint is configured.
 """
 
+from __future__ import annotations
+
 import logging
-import os
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import requests
+
+from app.services.jira import (
+    create_jira_issue,
+    get_jira_status,
+    is_jira_configured as _jira_configured_svc,
+)
+from app.services.slack import (
+    get_slack_status,
+    is_slack_configured as _slack_configured_svc,
+    send_slack_notification,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -16,92 +28,27 @@ REQUEST_TIMEOUT_SECONDS = 5
 
 
 def _slack_configured() -> bool:
-    return bool(os.getenv("SLACK_WEBHOOK_URL", "").strip())
+    return _slack_configured_svc()
 
 
 def _jira_configured() -> bool:
-    return bool(
-        os.getenv("JIRA_API_URL", "").strip()
-        and os.getenv("JIRA_AUTH_TOKEN", "").strip()
+    return _jira_configured_svc()
+
+
+def send_slack_alert(risk_assessment: dict, response_model: dict = None) -> str:
+    action_taken = response_model.get("action_taken") if isinstance(response_model, dict) else None
+    response_status = response_model.get("response_status") if isinstance(response_model, dict) else None
+    return send_slack_notification(
+        risk_assessment,
+        action_taken=action_taken,
+        response_status=response_status,
     )
 
 
-def send_slack_alert(risk_assessment: dict, response_model: dict) -> str:
-    if not _slack_configured():
-        return "skipped_not_configured"
-
-    webhook = os.environ["SLACK_WEBHOOK_URL"].strip()
-    if not webhook.startswith("https://"):
-        logger.warning("SLACK_WEBHOOK_URL must use HTTPS; notification skipped")
-        return "skipped_insecure_url"
-
-    payload = {
-        "text": f"Security alert: {risk_assessment.get('risk_category')} risk detected",
-        "blocks": [
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": (
-                        f"*Security Alert: {risk_assessment.get('risk_category')} Risk Detected*\n\n"
-                        f"*User:* {risk_assessment.get('user_id')}\n"
-                        f"*Event ID:* {risk_assessment.get('event_id')}\n"
-                        f"*Combined Score:* {risk_assessment.get('combined_score')}\n"
-                        f"*Action Taken:* {response_model.get('action_taken')} "
-                        f"({response_model.get('response_status')})\n\n"
-                        f"*Explanations:* {', '.join(risk_assessment.get('explanation', []))}"
-                    ),
-                },
-            }
-        ],
-    }
-    try:
-        response = requests.post(webhook, json=payload, timeout=REQUEST_TIMEOUT_SECONDS, verify=True)
-        response.raise_for_status()
-        return "sent"
-    except requests.RequestException as exc:
-        logger.error("Slack notification failed: %s", type(exc).__name__)
-        return "failed"
-
-
-def create_jira_ticket(risk_assessment: dict, response_model: dict) -> str:
-    if not _jira_configured():
-        return "skipped_not_configured"
-
-    api_url = os.environ["JIRA_API_URL"].strip()
-    token = os.environ["JIRA_AUTH_TOKEN"].strip()
-    if not api_url.startswith("https://"):
-        logger.warning("JIRA_API_URL must use HTTPS; ticket creation skipped")
-        return "skipped_insecure_url"
-
-    payload: Dict[str, Any] = {
-        "fields": {
-            "project": {"key": os.getenv("JIRA_PROJECT_KEY", "SEC")},
-            "summary": (
-                f"Security Incident: {risk_assessment.get('risk_category')} risk "
-                f"for {risk_assessment.get('user_id')}"
-            ),
-            "description": (
-                f"Risk Score: {risk_assessment.get('combined_score')}\n"
-                f"Action: {response_model.get('action_taken')}\n"
-                f"Details: {', '.join(risk_assessment.get('explanation', []))}"
-            ),
-            "issuetype": {"name": os.getenv("JIRA_ISSUE_TYPE", "Incident")},
-        }
-    }
-    try:
-        response = requests.post(
-            api_url,
-            json=payload,
-            headers={
-                "Authorization": f"Bearer {token}",
-                "Content-Type": "application/json",
-            },
-            timeout=REQUEST_TIMEOUT_SECONDS,
-            verify=True,
-        )
-        response.raise_for_status()
-        return "sent"
-    except requests.RequestException as exc:
-        logger.error("Jira ticket creation failed: %s", type(exc).__name__)
-        return "failed"
+def create_jira_ticket(risk_assessment: dict, response_model: dict = None) -> str:
+    action_taken = response_model.get("action_taken") if isinstance(response_model, dict) else None
+    status, _ = create_jira_issue(
+        risk_assessment,
+        action_taken=action_taken,
+    )
+    return status

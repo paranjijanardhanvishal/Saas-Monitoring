@@ -66,6 +66,10 @@ def _matches(doc, query):
             continue
 
         actual = doc.get(key)
+        if key == "_id":
+            if str(actual) != str(expected):
+                return False
+            continue
         if isinstance(expected, dict):
             for op, val in expected.items():
                 if op == "$ne" and actual == val:
@@ -102,6 +106,13 @@ class MockCollection:
         d = copy.deepcopy(doc)
         if "_id" not in d:
             d["_id"] = str(ObjectId())
+
+        # Enforce unique index simulation for mock
+        if self.name == "alerts" and "dedupe_key" in d and d["dedupe_key"]:
+            if any(existing.get("dedupe_key") == d["dedupe_key"] for existing in self.docs):
+                from pymongo.errors import DuplicateKeyError
+                raise DuplicateKeyError("E11000 duplicate key error collection: alerts index: dedupe_key")
+
         self.docs.append(d)
         res = type("InsertResult", (), {"inserted_id": d["_id"]})()
         return res
@@ -146,6 +157,15 @@ class MockCollection:
 
         if "$set" in update:
             matched.update(copy.deepcopy(update["$set"]))
+        if "$addToSet" in update:
+            for k, val in update["$addToSet"].items():
+                lst = matched.setdefault(k, [])
+                if val not in lst:
+                    lst.append(copy.deepcopy(val))
+        if "$push" in update:
+            for k, val in update["$push"].items():
+                lst = matched.setdefault(k, [])
+                lst.append(copy.deepcopy(val))
         return type("UpdateResult", (), {"matched_count": 1, "modified_count": 1, "upserted_id": None})()
 
     async def update_many(self, query, update, upsert=False):
