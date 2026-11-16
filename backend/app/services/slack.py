@@ -15,6 +15,7 @@ from typing import Any, Dict, Optional
 import requests
 
 from app.core.config import settings
+from app.services.sanitizer import sanitize_for_external
 
 logger = logging.getLogger(__name__)
 
@@ -43,18 +44,21 @@ def get_slack_status() -> Dict[str, Any]:
     if not url:
         return {
             "status": "not_configured",
+            "state": "NOT CONFIGURED",
             "configured": False,
             "last_delivery_at": _last_slack_delivery_at,
         }
     if _last_slack_status == "failed":
         return {
             "status": "failed",
+            "state": "ERROR",
             "configured": True,
             "error": _last_slack_error or "Delivery failed",
             "last_delivery_at": _last_slack_delivery_at,
         }
     return {
         "status": "configured",
+        "state": "CONFIGURED",
         "configured": True,
         "last_delivery_at": _last_slack_delivery_at,
     }
@@ -69,9 +73,13 @@ def send_slack_notification(
 
     Accepts an alert document or risk assessment dictionary.
     Returns:
-      "sent" | "skipped_not_configured" | "skipped_insecure_url" | "skipped_low_severity" | "failed"
+      "sent" | "skipped_not_configured" | "skipped_insecure_url" | "skipped_low_severity" | "skipped_already_sent" | "failed"
     """
     global _last_slack_status, _last_slack_error, _last_slack_delivery_at
+
+    # Deduplication check: prevent duplicate notifications for already dispatched alerts
+    if data.get("slack_delivery") == "sent":
+        return "skipped_already_sent"
 
     url = get_slack_webhook_url()
     if not url:
@@ -92,13 +100,13 @@ def send_slack_notification(
     if severity not in {"HIGH", "CRITICAL"}:
         return "skipped_low_severity"
 
-    user_id = data.get("user_id") or "unknown_user"
-    event_id = data.get("event_id") or "none"
-    title = data.get("title") or f"{severity} Risk Alert"
-    reason = data.get("reason")
-    if not reason and isinstance(data.get("explanation"), list):
-        reason = "; ".join(data.get("explanation", []))
-    reason = str(reason or "Policy violation or anomaly threshold exceeded")[:300]
+    user_id = sanitize_for_external(data.get("user_id") or "unknown_user", max_length=64)
+    event_id = sanitize_for_external(data.get("event_id") or "none", max_length=64)
+    title = sanitize_for_external(data.get("title") or f"{severity} Risk Alert", max_length=150)
+    raw_reason = data.get("reason")
+    if not raw_reason and isinstance(data.get("explanation"), list):
+        raw_reason = "; ".join(data.get("explanation", []))
+    reason = sanitize_for_external(raw_reason or "Policy violation or anomaly threshold exceeded", max_length=300)
 
     risk_score = data.get("risk_score") or data.get("combined_score")
     score_display = f"{risk_score:.1f}/100" if isinstance(risk_score, (int, float)) else "N/A"
@@ -110,8 +118,9 @@ def send_slack_notification(
         f"*Event ID:* `{event_id}`",
     ]
     if action_taken:
-        status_suffix = f" ({response_status})" if response_status else ""
-        fields_text.append(f"*Action Taken:* `{action_taken}{status_suffix}`")
+        clean_action = sanitize_for_external(action_taken, max_length=64)
+        status_suffix = f" ({sanitize_for_external(response_status, max_length=32)})" if response_status else ""
+        fields_text.append(f"*Action Taken:* `{clean_action}{status_suffix}`")
 
     blocks = [
         {

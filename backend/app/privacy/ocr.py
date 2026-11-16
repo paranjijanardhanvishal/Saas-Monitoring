@@ -163,7 +163,7 @@ def get_ocr_status() -> dict[str, Any]:
         "max_text_length": settings.PII_MAX_TEXT_LENGTH,
     }
     try:
-        import fitz  # noqa: F401
+        import pymupdf  # noqa: F401
         import pytesseract
         from PIL import Image  # noqa: F401
 
@@ -200,7 +200,7 @@ def extract_document_text(payload: bytes, filename: str | None) -> OCRExtraction
     if extension not in SUPPORTED_FILE_TYPES:
         raise OCRInputError("Choose a PDF, PNG, JPEG, TIFF, BMP or WebP file.")
 
-    import fitz
+    import pymupdf
 
     def require_ocr():
         """Load OCR dependencies only when an image must be read.
@@ -224,7 +224,7 @@ def extract_document_text(payload: bytes, filename: str | None) -> OCRExtraction
     try:
         if extension == ".pdf":
             try:
-                document = fitz.open(stream=payload, filetype="pdf")
+                document = pymupdf.open(stream=payload, filetype="pdf")
             except Exception as exc:
                 raise OCRInputError("The PDF file is corrupted or cannot be read.") from exc
 
@@ -258,7 +258,7 @@ def extract_document_text(payload: bytes, filename: str | None) -> OCRExtraction
                             raise OCRInputError(f"Page {page_idx + 1} has invalid dimensions.")
                         scale = min(150 / 72, MAX_OCR_PAGE_EDGE / longest_edge)
                         try:
-                            pixmap = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False)
+                            pixmap = page.get_pixmap(matrix=pymupdf.Matrix(scale, scale), alpha=False)
                             with Image.open(BytesIO(pixmap.tobytes("png"))) as image:
                                 ocr_text = _ocr_image(image, pytesseract)
                                 if ocr_text.strip():

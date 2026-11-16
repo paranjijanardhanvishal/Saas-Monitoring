@@ -22,6 +22,7 @@ class IncidentBase(BaseModel):
     evidence: List[Dict[str, Any]] = []
     notes: List[Dict[str, Any]] = []
     jira_issue_key: Optional[str] = None
+    jira_issue_url: Optional[str] = None
     jira_delivery: Optional[str] = None
     jira_sent_at: Optional[datetime] = None
 

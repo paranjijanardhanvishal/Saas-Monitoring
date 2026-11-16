@@ -1,6 +1,7 @@
+import logging
 import re
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from bson import ObjectId
 from bson.errors import InvalidId
@@ -23,6 +24,7 @@ from app.models.incident import (
 from app.models.user import UserModel
 from app.services.audit import record_audit
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -119,6 +121,27 @@ async def create_incident(
     )
     result = await db.incidents.insert_one(document)
     document["_id"] = result.inserted_id
+
+    # Dispatch Jira incident creation for HIGH and CRITICAL severity events
+    if document.get("severity") in ("HIGH", "CRITICAL") and document.get("jira_delivery") != "sent":
+        try:
+            from app.services.jira import create_jira_issue, get_jira_issue_url
+            jira_status, issue_key = create_jira_issue(document)
+            jira_update: dict[str, Any] = {"jira_delivery": jira_status}
+            if jira_status == "sent":
+                jira_update["jira_issue_key"] = issue_key
+                issue_url = get_jira_issue_url(issue_key)
+                if issue_url:
+                    jira_update["jira_issue_url"] = issue_url
+                jira_update["jira_sent_at"] = now
+                if issue_key:
+                    document["response_history"].append(f"Linked Jira issue {issue_key}")
+                    jira_update["response_history"] = document["response_history"]
+            await db.incidents.update_one({"_id": document["_id"]}, {"$set": jira_update})
+            document.update(jira_update)
+        except Exception as exc:
+            logger.warning("Jira incident creation failed safely: %s", exc)
+
     await record_audit(
         db,
         current_user.user_id,

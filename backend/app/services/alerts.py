@@ -145,13 +145,13 @@ async def create_alerts_from_risk(db, assessment: dict[str, Any]) -> list[dict[s
         except Exception as exc:
             logger.warning("Slack notification dispatch failed safely: %s", exc)
 
-    if category == "CRITICAL":
+    if category in {"HIGH", "CRITICAL"}:
         await ensure_incident_for_alert(db, alert)
     return [alert]
 
 
 async def ensure_incident_for_alert(db, alert: dict[str, Any]) -> Optional[dict[str, Any]]:
-    """Attach a CRITICAL alert to an open incident, creating one if needed.
+    """Attach a HIGH or CRITICAL alert to an open incident, creating one if needed.
 
     Correlation is limited to the same user and a 24 hour window. No unrelated
     accounts are grouped.
@@ -189,14 +189,18 @@ async def ensure_incident_for_alert(db, alert: dict[str, Any]) -> Optional[dict[
         )
         return existing
 
+    severity = str(alert.get("severity") or "CRITICAL").upper()
+    if severity not in {"HIGH", "CRITICAL"}:
+        severity = "HIGH"
+
     document = {
-        "title": f"Critical incident: {alert.get('title', 'security alert')}"[:200],
-        "severity": "CRITICAL",
+        "title": f"{severity.title()} incident: {alert.get('title', 'security alert')}"[:200],
+        "severity": severity,
         "status": "OPEN",
         "user_id": user_id,
         "saas_app": alert.get("saas_app"),
         "resource_id": alert.get("resource_id"),
-        "reason": alert.get("reason", "Critical alert requires investigation.")[:4000],
+        "reason": alert.get("reason", f"{severity} alert requires investigation.")[:4000],
         "risk_score": alert.get("risk_score"),
         "related_alerts": [alert_id],
         "related_events": [alert.get("event_id")] if alert.get("event_id") else [],
@@ -204,11 +208,12 @@ async def ensure_incident_for_alert(db, alert: dict[str, Any]) -> Optional[dict[
         "evidence": alert.get("evidence", []),
         "notes": [],
         "jira_issue_key": None,
+        "jira_issue_url": None,
         "jira_delivery": None,
         "jira_sent_at": None,
         "created_time": now,
         "updated_at": now,
-        "response_history": ["Incident auto-created from critical alert"],
+        "response_history": [f"Incident auto-created from {severity.lower()} alert"],
         "history": [
             {
                 "timestamp": now,
@@ -223,11 +228,14 @@ async def ensure_incident_for_alert(db, alert: dict[str, Any]) -> Optional[dict[
 
     # Dispatch Jira incident creation with deduplication
     try:
-        from app.services.jira import create_jira_issue
+        from app.services.jira import create_jira_issue, get_jira_issue_url
         jira_status, issue_key = create_jira_issue(document)
         jira_update: dict[str, Any] = {"jira_delivery": jira_status}
         if jira_status == "sent":
             jira_update["jira_issue_key"] = issue_key
+            issue_url = get_jira_issue_url(issue_key)
+            if issue_url:
+                jira_update["jira_issue_url"] = issue_url
             jira_update["jira_sent_at"] = now
             if issue_key:
                 document["response_history"].append(f"Linked Jira issue {issue_key}")

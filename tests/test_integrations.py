@@ -191,3 +191,200 @@ async def test_pipeline_resilient_to_integration_failure(db, monkeypatch):
     incidents = await db.incidents.find({"user_id": "fail-user"}).to_list(length=10)
     assert len(incidents) == 1
     assert incidents[0]["jira_delivery"] == "failed"
+
+
+def test_slack_payload_pii_and_secret_redaction(monkeypatch):
+    monkeypatch.setenv("SLACK_WEBHOOK_URL", "https://hooks.example/services/secret-token")
+
+    post_mock = Mock()
+    post_mock.return_value.raise_for_status = Mock()
+    monkeypatch.setattr(slack_service.requests, "post", post_mock)
+
+    alert_with_secrets = {
+        "severity": "CRITICAL",
+        "user_id": "attacker@corp.internal",
+        "title": "Exfiltration of user password=SuperSecret123! and Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.test",
+        "reason": "Exposed Card 4111-2222-3333-4444 and SSN 000-12-3456 with api_key: key_secret_998877",
+        "combined_score": 99.0,
+    }
+
+    result = slack_service.send_slack_notification(alert_with_secrets)
+    assert result == "sent"
+    assert post_mock.call_count == 1
+    payload = post_mock.call_args.kwargs["json"]
+
+    payload_str = str(payload)
+    # Assert raw PII and secrets are never in the payload
+    assert "SuperSecret123!" not in payload_str
+    assert "4111-2222-3333-4444" not in payload_str
+    assert "000-12-3456" not in payload_str
+    assert "key_secret_998877" not in payload_str
+    assert "[CARD_REDACTED]" in payload_str
+    assert "[SSN_REDACTED]" in payload_str
+    assert "[REDACTED]" in payload_str
+
+
+def test_jira_payload_pii_and_secret_redaction(monkeypatch):
+    monkeypatch.setenv("JIRA_BASE_URL", "https://jira.example/rest/api/2/issue")
+    monkeypatch.setenv("JIRA_API_TOKEN", "jira-secret")
+
+    post_mock = Mock()
+    resp = Mock()
+    resp.raise_for_status = Mock()
+    resp.content = b'{"key": "SEC-888"}'
+    resp.json = Mock(return_value={"key": "SEC-888"})
+    post_mock.return_value = resp
+    monkeypatch.setattr(jira_service.requests, "post", post_mock)
+
+    incident_with_secrets = {
+        "severity": "HIGH",
+        "user_id": "analyst-02",
+        "title": "Leak of access_token=secret_jwt_xyz and SSN 123-45-6789",
+        "reason": "Credit card 5555 4444 3333 2222 used in test",
+        "combined_score": 85.0,
+    }
+
+    status, key = jira_service.create_jira_issue(incident_with_secrets)
+    assert status == "sent"
+    assert key == "SEC-888"
+    payload = post_mock.call_args.kwargs["json"]
+
+    payload_str = str(payload)
+    assert "secret_jwt_xyz" not in payload_str
+    assert "123-45-6789" not in payload_str
+    assert "5555 4444 3333 2222" not in payload_str
+    assert "[CARD_REDACTED]" in payload_str
+    assert "[SSN_REDACTED]" in payload_str
+
+
+def test_duplicate_notification_prevention(monkeypatch):
+    monkeypatch.setenv("SLACK_WEBHOOK_URL", "https://hooks.example/services/x")
+    monkeypatch.setenv("JIRA_BASE_URL", "https://jira.example")
+    monkeypatch.setenv("JIRA_API_TOKEN", "token")
+
+    post = Mock()
+    monkeypatch.setattr(slack_service.requests, "post", post)
+    monkeypatch.setattr(jira_service.requests, "post", post)
+
+    # Already sent Slack alert
+    already_sent_alert = {"severity": "HIGH", "slack_delivery": "sent"}
+    assert slack_service.send_slack_notification(already_sent_alert) == "skipped_already_sent"
+    assert post.call_count == 0
+
+    # Already created Jira incident
+    already_sent_incident = {"severity": "CRITICAL", "jira_delivery": "sent", "jira_issue_key": "SEC-100"}
+    status, key = jira_service.create_jira_issue(already_sent_incident)
+    assert status == "skipped_already_sent"
+    assert key == "SEC-100"
+    assert post.call_count == 0
+
+
+def test_system_health_integration_status_reporting(monkeypatch):
+    # 1. Not configured
+    monkeypatch.delenv("SLACK_WEBHOOK_URL", raising=False)
+    monkeypatch.delenv("JIRA_BASE_URL", raising=False)
+    monkeypatch.delenv("JIRA_API_URL", raising=False)
+    monkeypatch.delenv("JIRA_API_TOKEN", raising=False)
+    monkeypatch.delenv("JIRA_AUTH_TOKEN", raising=False)
+
+    slack_st = slack_service.get_slack_status()
+    jira_st = jira_service.get_jira_status()
+    assert slack_st["state"] == "NOT CONFIGURED"
+    assert slack_st["configured"] is False
+    assert jira_st["state"] == "NOT CONFIGURED"
+    assert jira_st["configured"] is False
+
+    # 2. Configured and operational
+    monkeypatch.setenv("SLACK_WEBHOOK_URL", "https://hooks.example/services/token")
+    monkeypatch.setenv("JIRA_BASE_URL", "https://jira.example")
+    monkeypatch.setenv("JIRA_API_TOKEN", "token")
+
+    mock_resp = Mock()
+    mock_resp.raise_for_status = Mock()
+    mock_resp.content = b'{"key": "SEC-55"}'
+    mock_resp.json = Mock(return_value={"key": "SEC-55"})
+    post_mock = Mock(return_value=mock_resp)
+    monkeypatch.setattr(slack_service.requests, "post", post_mock)
+    monkeypatch.setattr(jira_service.requests, "post", post_mock)
+
+    slack_service.send_slack_notification({"severity": "HIGH", "user_id": "u1"})
+    jira_service.create_jira_issue({"severity": "HIGH", "user_id": "u1"})
+
+    slack_st_ok = slack_service.get_slack_status()
+    jira_st_ok = jira_service.get_jira_status()
+    assert slack_st_ok["state"] == "CONFIGURED"
+    assert slack_st_ok["configured"] is True
+    assert slack_st_ok["last_delivery_at"] is not None
+
+    assert jira_st_ok["state"] == "CONFIGURED"
+    assert jira_st_ok["configured"] is True
+    assert jira_st_ok["last_issue_key"] == "SEC-55"
+    assert jira_st_ok["last_issue_url"] == "https://jira.example/browse/SEC-55"
+    assert jira_st_ok["last_delivery_at"] is not None
+
+    # 3. Error state
+    post_err = Mock(side_effect=Exception("Connection refused"))
+    monkeypatch.setattr(slack_service.requests, "post", post_err)
+    monkeypatch.setattr(jira_service.requests, "post", post_err)
+
+    slack_service.send_slack_notification({"severity": "HIGH", "user_id": "u1"})
+    jira_service.create_jira_issue({"severity": "HIGH", "user_id": "u1"})
+
+    slack_st_err = slack_service.get_slack_status()
+    jira_st_err = jira_service.get_jira_status()
+    assert slack_st_err["state"] == "ERROR"
+    assert slack_st_err["status"] == "failed"
+    assert jira_st_err["state"] == "ERROR"
+    assert jira_st_err["status"] == "failed"
+
+
+@pytest.mark.asyncio
+async def test_manual_alert_and_incident_api_dispatch(client, db, monkeypatch):
+    from conftest import create_user, login
+    await create_user("sec-admin", role="ADMIN")
+    admin_token = (await login(client, "sec-admin"))["access_token"]
+    admin_headers = {"Authorization": f"Bearer {admin_token}"}
+
+    monkeypatch.setenv("SLACK_WEBHOOK_URL", "https://hooks.example/services/valid")
+    monkeypatch.setenv("JIRA_BASE_URL", "https://jira.example")
+    monkeypatch.setenv("JIRA_API_TOKEN", "token")
+
+    mock_resp = Mock()
+    mock_resp.raise_for_status = Mock()
+    mock_resp.content = b'{"key": "SEC-900"}'
+    mock_resp.json = Mock(return_value={"key": "SEC-900"})
+    post = Mock(return_value=mock_resp)
+    monkeypatch.setattr(slack_service.requests, "post", post)
+    monkeypatch.setattr(jira_service.requests, "post", post)
+
+    # 1. Create HIGH alert via API -> triggers Slack
+    alert_resp = await client.post(
+        "/api/alerts",
+        json={
+            "severity": "HIGH",
+            "title": "Manual High Risk Incident",
+            "reason": "Exfiltration suspected",
+            "user_id": "sec-admin",
+        },
+        headers=admin_headers,
+    )
+    assert alert_resp.status_code == 201
+    assert alert_resp.json()["slack_delivery"] == "sent"
+
+    # 2. Create CRITICAL incident via API -> triggers Jira
+    incident_resp = await client.post(
+        "/api/incidents",
+        json={
+            "severity": "CRITICAL",
+            "title": "Confirmed Data Breach",
+            "reason": "Multiple credential leaks",
+            "user_id": "sec-admin",
+        },
+        headers=admin_headers,
+    )
+    assert incident_resp.status_code == 201
+    inc_data = incident_resp.json()
+    assert inc_data["jira_delivery"] == "sent"
+    assert inc_data["jira_issue_key"] == "SEC-900"
+    assert inc_data["jira_issue_url"] == "https://jira.example/browse/SEC-900"
+

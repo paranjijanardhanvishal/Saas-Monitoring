@@ -16,6 +16,7 @@ from typing import Any, Dict, Optional, Tuple
 import requests
 
 from app.core.config import settings
+from app.services.sanitizer import sanitize_for_external
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,7 @@ _last_jira_status: str = "not_configured"
 _last_jira_error: Optional[str] = None
 _last_jira_delivery_at: Optional[datetime] = None
 _last_jira_issue_key: Optional[str] = None
+_last_jira_issue_url: Optional[str] = None
 
 
 def get_jira_credentials() -> Dict[str, str]:
@@ -73,12 +75,25 @@ def is_jira_configured() -> bool:
     return bool(creds["base_url"] and creds["token"])
 
 
+def get_jira_issue_url(issue_key: Optional[str]) -> Optional[str]:
+    """Derive web browse URL for a Jira issue."""
+    if not issue_key:
+        return None
+    creds = get_jira_credentials()
+    base_url = creds.get("base_url", "").strip()
+    if not base_url:
+        return None
+    root_url = base_url.split("/rest/api")[0].rstrip("/")
+    return f"{root_url}/browse/{issue_key}"
+
+
 def get_jira_status() -> Dict[str, Any]:
     """Return runtime Jira integration health, configured project, and delivery status."""
     creds = get_jira_credentials()
     if not (creds["base_url"] and creds["token"]):
         return {
             "status": "not_configured",
+            "state": "NOT CONFIGURED",
             "configured": False,
             "project_key": creds["project_key"],
             "last_delivery_at": _last_jira_delivery_at,
@@ -86,6 +101,7 @@ def get_jira_status() -> Dict[str, Any]:
     if _last_jira_status == "failed":
         return {
             "status": "failed",
+            "state": "ERROR",
             "configured": True,
             "project_key": creds["project_key"],
             "error": _last_jira_error or "Ticket creation failed",
@@ -93,10 +109,12 @@ def get_jira_status() -> Dict[str, Any]:
         }
     return {
         "status": "configured",
+        "state": "CONFIGURED",
         "configured": True,
         "project_key": creds["project_key"],
         "last_delivery_at": _last_jira_delivery_at,
         "last_issue_key": _last_jira_issue_key,
+        "last_issue_url": _last_jira_issue_url,
     }
 
 
@@ -110,9 +128,13 @@ def create_jira_issue(
     Returns:
       (status_string, issue_key)
       where status_string is one of:
-      "sent" | "skipped_not_configured" | "skipped_insecure_url" | "skipped_low_severity" | "failed"
+      "sent" | "skipped_not_configured" | "skipped_insecure_url" | "skipped_low_severity" | "skipped_already_sent" | "failed"
     """
-    global _last_jira_status, _last_jira_error, _last_jira_delivery_at, _last_jira_issue_key
+    global _last_jira_status, _last_jira_error, _last_jira_delivery_at, _last_jira_issue_key, _last_jira_issue_url
+
+    # Deduplication check: prevent creating multiple Jira tickets for the same incident
+    if data.get("jira_delivery") == "sent" or data.get("jira_issue_key"):
+        return "skipped_already_sent", data.get("jira_issue_key")
 
     creds = get_jira_credentials()
     base_url = creds["base_url"]
@@ -145,13 +167,14 @@ def create_jira_issue(
     if severity not in {"HIGH", "CRITICAL"}:
         return "skipped_low_severity", None
 
-    user_id = data.get("user_id") or "unknown_user"
-    event_id = data.get("event_id") or "none"
-    title = data.get("title") or f"{severity} Security Incident"
-    reason = data.get("reason")
-    if not reason and isinstance(data.get("explanation"), list):
-        reason = "; ".join(data.get("explanation", []))
-    reason = str(reason or "Critical security policy or anomaly threshold exceeded")[:1000]
+    user_id = sanitize_for_external(data.get("user_id") or "unknown_user", max_length=64)
+    event_id = sanitize_for_external(data.get("event_id") or "none", max_length=64)
+    incident_ref = str(data.get("_id") or data.get("id") or "")
+    title = sanitize_for_external(data.get("title") or f"{severity} Security Incident", max_length=150)
+    raw_reason = data.get("reason")
+    if not raw_reason and isinstance(data.get("explanation"), list):
+        raw_reason = "; ".join(data.get("explanation", []))
+    reason = sanitize_for_external(raw_reason or "Critical security policy or anomaly threshold exceeded", max_length=1000)
 
     risk_score = data.get("risk_score") or data.get("combined_score")
     score_display = f"{risk_score:.1f}/100" if isinstance(risk_score, (int, float)) else "N/A"
@@ -174,11 +197,16 @@ def create_jira_issue(
         f"*Severity:* {severity}",
         f"*User:* {user_id}",
         f"*Event ID:* {event_id}",
+    ]
+    if incident_ref:
+        description_lines.append(f"*Internal Incident Ref:* {incident_ref}")
+    description_lines.extend([
         f"*Risk Score:* {score_display}",
         f"*Reason:* {reason}",
-    ]
+    ])
     if action_taken:
-        description_lines.append(f"*Enforcement Action:* {action_taken}")
+        clean_action = sanitize_for_external(action_taken, max_length=100)
+        description_lines.append(f"*Enforcement Action:* {clean_action}")
     description_lines.append(
         f"*Detected:* {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}"
     )
@@ -203,9 +231,14 @@ def create_jira_issue(
         response.raise_for_status()
         res_data = response.json() if response.content else {}
         issue_key = res_data.get("key")
+        issue_url = get_jira_issue_url(issue_key)
         _last_jira_status = "configured"
         _last_jira_error = None
         _last_jira_delivery_at = datetime.now(timezone.utc)
+        _last_jira_issue_key = issue_key
+        _last_jira_issue_url = issue_url
+        logger.info("Jira incident ticket created successfully: %s (%s)", issue_key or "created", issue_url or "")
+        return "sent", issue_key
         _last_jira_issue_key = issue_key
         logger.info("Jira incident ticket created successfully: %s", issue_key or "created")
         return "sent", issue_key

@@ -221,13 +221,13 @@ async def test_ocr_scan_end_to_end_with_pii_and_risk(client, db):
 
 @pytest.mark.asyncio
 async def test_text_based_pdf_scan(client, db):
-    import fitz
+    import pymupdf
 
     await create_user("pdf-text-user")
     token = (await login(client, "pdf-text-user"))["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
 
-    doc = fitz.open()
+    doc = pymupdf.open()
     page = doc.new_page()
     page.insert_text((50, 50), "Jane Doe Resume\nEmail: jane.resume@company.org\nSSN: 123-45-6789")
     pdf_bytes = doc.tobytes()
@@ -253,7 +253,7 @@ async def test_text_based_pdf_scan(client, db):
 @pytest.mark.asyncio
 async def test_scanned_image_only_pdf_scan(client, db):
     import io
-    import fitz
+    import pymupdf
     from PIL import Image, ImageDraw
 
     require_local_ocr()
@@ -268,7 +268,7 @@ async def test_scanned_image_only_pdf_scan(client, db):
     buf = io.BytesIO()
     img.save(buf, format="PNG")
 
-    doc = fitz.open()
+    doc = pymupdf.open()
     page = doc.new_page()
     page.insert_image(page.rect, stream=buf.getvalue())
     pdf_bytes = doc.tobytes()
@@ -287,7 +287,7 @@ async def test_scanned_image_only_pdf_scan(client, db):
 @pytest.mark.asyncio
 async def test_mixed_pdf_scan(client, db):
     import io
-    import fitz
+    import pymupdf
     from PIL import Image, ImageDraw
 
     require_local_ocr()
@@ -302,7 +302,7 @@ async def test_mixed_pdf_scan(client, db):
     buf = io.BytesIO()
     img.save(buf, format="PNG")
 
-    doc = fitz.open()
+    doc = pymupdf.open()
     # Page 1: Native text
     p1 = doc.new_page()
     p1.insert_text((50, 50), "Page 1: Digital Cover Letter\nContact: hiring.lead@corp.net")

@@ -1,6 +1,7 @@
+import logging
 import re
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from bson import ObjectId
 from bson.errors import InvalidId
@@ -23,6 +24,7 @@ from app.models.user import UserModel
 from app.services.alerts import create_alert
 from app.services.audit import record_audit
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -112,6 +114,21 @@ async def create_manual_alert(
         evidence=payload.evidence,
         dedupe_scope=f"manual-{datetime.now(timezone.utc).isoformat()}",
     )
+
+    # Dispatch Slack notification for HIGH and CRITICAL alerts
+    if payload.severity in ("HIGH", "CRITICAL") and alert.get("slack_delivery") != "sent":
+        try:
+            from app.services.slack import send_slack_notification
+            slack_status = send_slack_notification(alert)
+            slack_update: dict[str, Any] = {"slack_delivery": slack_status}
+            if slack_status == "sent":
+                slack_update["slack_sent_at"] = datetime.now(timezone.utc)
+            if db is not None and alert.get("_id"):
+                await db.alerts.update_one({"_id": alert["_id"]}, {"$set": slack_update})
+            alert.update(slack_update)
+        except Exception as exc:
+            logger.warning("Slack notification dispatch failed safely: %s", exc)
+
     await record_audit(
         db,
         current_user.user_id,
