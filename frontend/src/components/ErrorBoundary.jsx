@@ -32,7 +32,17 @@ class ErrorBoundary extends React.Component {
             </p>
             <button
               type="button"
-              onClick={() => window.location.reload()}
+              onClick={() => {
+                try {
+                  sessionStorage.clear();
+                  if ('caches' in window) {
+                    caches.keys().then((names) => {
+                      names.forEach((name) => caches.delete(name));
+                    });
+                  }
+                } catch {}
+                window.location.href = window.location.origin + window.location.pathname + '?_reload=' + Date.now();
+              }}
               className="mt-5 inline-flex items-center justify-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-500"
             >
               Reload page

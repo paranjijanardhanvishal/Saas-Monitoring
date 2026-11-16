@@ -11,15 +11,18 @@ import {
   LayoutDashboard,
   LogOut,
   Menu,
+  Moon,
   Search,
   ShieldAlert,
   ShieldCheck,
   ShieldOff,
+  Sun,
   Target,
   Users,
   X,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../context/ThemeContext';
 import { Badge, consentTone, cx, inputClass, labelClass, btnPrimary, btnSecondary } from '../components/ui';
 import { changePassword, errorMessage } from '../api';
 
@@ -60,6 +63,7 @@ const NAV_GROUPS = [
 
 export default function DashboardLayout() {
   const { user, isAdmin, isEditor, isVisitor, logout, refreshUser } = useAuth();
+  const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -289,6 +293,25 @@ export default function DashboardLayout() {
           </div>
 
           <div className="ml-auto flex items-center gap-2">
+            <button
+              type="button"
+              onClick={toggleTheme}
+              className="flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800/60 px-2.5 py-1.5 text-xs font-medium text-slate-300 transition hover:bg-slate-800 hover:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+              aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+              title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+            >
+              {theme === 'dark' ? (
+                <>
+                  <Sun size={15} className="text-amber-400" />
+                  <span className="hidden sm:inline">Light</span>
+                </>
+              ) : (
+                <>
+                  <Moon size={15} className="text-blue-400" />
+                  <span className="hidden sm:inline">Dark</span>
+                </>
+              )}
+            </button>
             {user.enforcement_status === 'RESTRICTED' ? (
               <Badge tone="red">Account restricted</Badge>
             ) : null}

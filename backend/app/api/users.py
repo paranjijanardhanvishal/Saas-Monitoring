@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, timezone
-from typing import List, Optional
+from typing import List, Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
@@ -14,10 +14,22 @@ router = APIRouter()
 
 
 class UserDirectoryEntry(BaseModel):
-    """Minimum public directory fields; deliberately excludes personal data."""
+    """Role-specific directory fields; credentials are never included."""
 
     user_id: str
+    display_name: Optional[str] = None
+    email: Optional[str] = None
     role: str
+    business_role: str = "GENERAL"
+
+
+def _mask_email(email: Optional[str]) -> Optional[str]:
+    if not email:
+        return None
+    local, separator, domain = str(email).partition("@")
+    if not separator or not local or not domain:
+        return "***"
+    return f"{local[0]}{'*' * (len(local) - 1)}@{domain}"
 
 
 def _deny_restricted_directory_details(current_user: UserModel) -> None:
@@ -41,8 +53,8 @@ async def get_users(
     q: Optional[str] = Query(None, max_length=100),
     current_user: UserModel = Depends(get_current_user),
 ):
-    """Monitored user directory. Defaults to consenting (ALLOWED) users only."""
-    if current_user.role not in ("ADMIN", "EDITOR"):
+    """Monitored user directory. Accessible to ADMIN, EDITOR, and USER (read-only); VISITOR denied."""
+    if current_user.role not in ("ADMIN", "EDITOR", "USER"):
         raise HTTPException(status_code=403, detail="Security console directory access required")
 
     db = get_database()
@@ -233,9 +245,11 @@ async def delete_user(
 async def update_user_business_role(
     user_id: str,
     payload: BusinessRoleUpdate,
-    current_user: UserModel = Depends(get_current_admin_user),
+    current_user: UserModel = Depends(get_current_user),
 ):
-    """Update a monitored user's business role for role-aware analytics."""
+    """ADMIN and EDITOR may change business roles; USER and VISITOR receive 403."""
+    if current_user.role not in ("ADMIN", "EDITOR"):
+        raise HTTPException(status_code=403, detail="Only administrators may update business roles.")
     db = get_database()
     if db is None:
         raise HTTPException(status_code=503, detail="Database not connected")
@@ -263,21 +277,49 @@ async def update_user_business_role(
 async def get_user_directory(
     limit: int = Query(100, ge=1, le=200),
     skip: int = Query(0, ge=0),
+    role: Optional[str] = Query(None, pattern="^(ADMIN|EDITOR|VISITOR|USER)$"),
+    business_role: Optional[str] = Query(None, pattern="^(GENERAL|DEVELOPER|HR|FINANCE)$"),
+    q: Optional[str] = Query(None, max_length=100),
     current_user: UserModel = Depends(get_current_user),
 ):
-    """Return a minimal authenticated directory, with no profile fields."""
+    """Return a restricted authenticated directory for visitor/auditor roles."""
     if current_user.role not in ("ADMIN", "EDITOR", "USER", "VISITOR"):
         raise HTTPException(status_code=403, detail="User directory access is not permitted for this role.")
     db = get_database()
     if db is None:
         raise HTTPException(status_code=503, detail="Database not connected")
+
+    query: dict = {}
+    if role:
+        query["role"] = role
+    if business_role == "GENERAL":
+        query["$or"] = [
+            {"business_role": "GENERAL"},
+            {"business_role": {"$exists": False}},
+            {"business_role": None},
+        ]
+    elif business_role:
+        query["business_role"] = business_role
+    if q:
+        query["$or"] = [
+            {"user_id": {"$regex": q, "$options": "i"}},
+            {"display_name": {"$regex": q, "$options": "i"}},
+        ]
+
     cursor = (
-        db.users.find({}, {"_id": 0, "user_id": 1, "role": 1})
+        db.users.find(
+            query,
+            {"_id": 0, "user_id": 1, "display_name": 1, "email": 1, "role": 1, "business_role": 1},
+        )
         .sort("user_id", 1)
         .skip(skip)
         .limit(limit)
     )
-    return await cursor.to_list(length=limit)
+    entries = await cursor.to_list(length=limit)
+    if current_user.role == "VISITOR":
+        for entry in entries:
+            entry["email"] = _mask_email(entry.get("email"))
+    return entries
 
 
 @router.get("/users/{user_id}", response_model=UserResponse)

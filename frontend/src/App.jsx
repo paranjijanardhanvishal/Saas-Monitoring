@@ -3,6 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation, Link } from 'react
 import { Loader2, ShieldX } from 'lucide-react';
 import DashboardLayout from './layouts/DashboardLayout';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { ThemeProvider } from './context/ThemeContext';
 import ErrorBoundary from './components/ErrorBoundary';
 import { btnPrimary } from './components/ui';
 
@@ -158,12 +159,14 @@ export default function App() {
   return (
     <ErrorBoundary>
       <AuthProvider>
-        <BrowserRouter>
-          <ScrollToTop />
-          <Suspense fallback={<RouteLoader />}>
-            <AppRoutes />
-          </Suspense>
-        </BrowserRouter>
+        <ThemeProvider>
+          <BrowserRouter>
+            <ScrollToTop />
+            <Suspense fallback={<RouteLoader />}>
+              <AppRoutes />
+            </Suspense>
+          </BrowserRouter>
+        </ThemeProvider>
       </AuthProvider>
     </ErrorBoundary>
   );

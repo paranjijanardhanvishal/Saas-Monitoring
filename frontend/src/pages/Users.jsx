@@ -7,7 +7,6 @@ import {
   Loader2,
   Plus,
   RefreshCw,
-  ShieldCheck,
   ShieldOff,
   UserPlus,
   Users as UsersIcon,
@@ -22,6 +21,7 @@ import {
   getUserDevices,
   getUserSummary,
   revokeAgentDevice,
+  updateUser,
   updateUserBusinessRole,
 } from '../api';
 import { useAuth } from '../context/AuthContext';
@@ -66,7 +66,8 @@ const emptyCreateForm = {
 
 export default function Users() {
   const { user, isAdmin, isEditor, isVisitor } = useAuth();
-  const directoryOnly = user?.role === 'USER' || user?.role === 'VISITOR';
+  const canViewDetails = isAdmin || isEditor;
+
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -101,6 +102,11 @@ export default function Users() {
   const [revokeTarget, setRevokeTarget] = useState(null);
   const [revokeBusy, setRevokeBusy] = useState(false);
   const [revokeError, setRevokeError] = useState('');
+
+  const [accessRoleDraft, setAccessRoleDraft] = useState('USER');
+  const [accessRoleBusy, setAccessRoleBusy] = useState(false);
+  const [accessRoleNotice, setAccessRoleNotice] = useState('');
+
   const [businessRoleDraft, setBusinessRoleDraft] = useState('GENERAL');
   const [businessRoleBusy, setBusinessRoleBusy] = useState(false);
   const [businessRoleNotice, setBusinessRoleNotice] = useState('');
@@ -111,8 +117,14 @@ export default function Users() {
       else setLoading(true);
       setError('');
       try {
-        const result = directoryOnly
-          ? await getUserDirectory({ limit: LIMIT, skip: nextSkip })
+        const result = isVisitor
+          ? await getUserDirectory({
+              limit: LIMIT,
+              skip: nextSkip,
+              q: appliedQuery || undefined,
+              role: role || undefined,
+              business_role: businessRole || undefined,
+            })
           : await getUsers({
               limit: LIMIT,
               skip: nextSkip,
@@ -130,70 +142,82 @@ export default function Users() {
         setRefreshing(false);
       }
     },
-    [skip, appliedQuery, consent, role, businessRole, directoryOnly],
+    [skip, appliedQuery, consent, role, businessRole, isVisitor],
   );
 
   useEffect(() => {
     load();
   }, [load]);
 
-  const openDetail = useCallback(async (user) => {
-    setSelected(user);
+  const openDetail = useCallback(async (targetUser) => {
+    if (!canViewDetails) return;
+    setSelected(targetUser);
     setDetail(null);
     setDetailError('');
     setDetailLoading(true);
+    setAccessRoleDraft(targetUser.role || 'USER');
+    setAccessRoleNotice('');
+    setBusinessRoleDraft(targetUser.business_role || 'GENERAL');
+    setBusinessRoleNotice('');
     try {
       const [summary, devices] = await Promise.all([
-        getUserSummary(user.user_id),
-        getUserDevices(user.user_id),
+        getUserSummary(targetUser.user_id),
+        getUserDevices(targetUser.user_id),
       ]);
       setDetail({ summary, devices: Array.isArray(devices) ? devices : [] });
-      setBusinessRoleDraft(summary?.user?.business_role || user.business_role || 'GENERAL');
-      setBusinessRoleNotice('');
+      setAccessRoleDraft(summary?.user?.role || targetUser.role || 'USER');
+      setBusinessRoleDraft(summary?.user?.business_role || targetUser.business_role || 'GENERAL');
     } catch (err) {
-      setDetailError(errorMessage(err, 'Could not load user details.'));
+      setDetailError(errorMessage(err, 'Could not load correlated user details.'));
     } finally {
       setDetailLoading(false);
     }
-  }, []);
+  }, [canViewDetails]);
 
   const closeDetail = () => {
     setSelected(null);
     setDetail(null);
-    setDetailError('');
     setTokenData(null);
     setTokenError('');
+    setAccessRoleNotice('');
+    setBusinessRoleNotice('');
   };
 
-  const handleSearch = () => {
+  const handleSearch = (event) => {
+    event?.preventDefault();
     setSkip(0);
     setAppliedQuery(query.trim());
-    if (skip === 0) load({ nextSkip: 0 });
   };
 
-  const handleCreate = async (event) => {
+  const handleCreateChange = (event) => {
+    const { name, value } = event.target;
+    setCreateForm((current) => ({ ...current, [name]: value }));
+  };
+
+  const handleCreateSubmit = async (event) => {
     event.preventDefault();
+    setCreateBusy(true);
     setCreateError('');
     setCreateSuccess('');
-    if (createForm.password.length < 12) {
-      setCreateError('Password must be at least 12 characters.');
-      return;
-    }
-    setCreateBusy(true);
     try {
       const created = await createUser({
         user_id: createForm.user_id.trim(),
         email: createForm.email.trim(),
-        display_name: createForm.display_name.trim() || null,
+        display_name: createForm.display_name.trim() || undefined,
         password: createForm.password,
         role: createForm.role,
         business_role: createForm.business_role,
       });
-      setCreateSuccess(`Created ${created.user_id}. The password was not stored in the browser.`);
+      setCreateSuccess(`Account created for ${created.user_id}.`);
       setCreateForm(emptyCreateForm);
-      load({ silent: true, nextSkip: 0 });
+      await load({ silent: true, nextSkip: 0 });
+      setSkip(0);
+      setTimeout(() => {
+        setCreateOpen(false);
+        setCreateSuccess('');
+      }, 1200);
     } catch (err) {
-      setCreateError(errorMessage(err, 'Could not create the user.'));
+      setCreateError(errorMessage(err, 'Failed to create user.'));
     } finally {
       setCreateBusy(false);
     }
@@ -203,12 +227,12 @@ export default function Users() {
     if (!selected) return;
     setTokenBusy(true);
     setTokenError('');
-    setTokenData(null);
     try {
-      const result = await createEnrollmentToken(selected.user_id);
-      setTokenData(result);
+      const response = await createEnrollmentToken(selected.user_id);
+      setTokenData(response);
+      setCopied(false);
     } catch (err) {
-      setTokenError(errorMessage(err, 'Could not issue an enrollment token.'));
+      setTokenError(errorMessage(err, 'Could not generate enrollment token.'));
     } finally {
       setTokenBusy(false);
     }
@@ -219,28 +243,32 @@ export default function Users() {
     try {
       await navigator.clipboard.writeText(tokenData.enrollment_token);
       setCopied(true);
-      window.setTimeout(() => setCopied(false), 2000);
+      setTimeout(() => setCopied(false), 2000);
     } catch {
-      setTokenError('Clipboard access was denied. Select and copy the token manually.');
+      setTokenError('Clipboard write failed.');
     }
   };
 
-  const handleRevoke = async (reason) => {
+  const handleRevoke = async () => {
     if (!revokeTarget) return;
     setRevokeBusy(true);
     setRevokeError('');
     try {
-      await revokeAgentDevice(revokeTarget.device_id, reason);
+      await revokeAgentDevice(revokeTarget.device_id, 'Revoked by administrator from User Directory');
       setRevokeTarget(null);
-      if (selected) await openDetail(selected);
+      if (selected) {
+        const devices = await getUserDevices(selected.user_id);
+        setDetail((current) => (current ? { ...current, devices: Array.isArray(devices) ? devices : [] } : current));
+      }
+      load({ silent: true });
     } catch (err) {
-      setRevokeError(errorMessage(err, 'Could not revoke the device.'));
+      setRevokeError(errorMessage(err, 'Could not revoke device.'));
     } finally {
       setRevokeBusy(false);
     }
   };
 
-  const handleDeleteUser = async () => {
+  const handleDelete = async () => {
     if (!deleteTarget) return;
     setDeleteBusy(true);
     setDeleteError('');
@@ -258,6 +286,28 @@ export default function Users() {
     }
   };
 
+  const handleAccessRoleUpdate = async () => {
+    if (!selected || selected.user_id === 'admin') return;
+    setAccessRoleBusy(true);
+    setAccessRoleNotice('');
+    setDetailError('');
+    try {
+      const updated = await updateUser(selected.user_id, { role: accessRoleDraft });
+      setSelected(updated);
+      setAccessRoleDraft(updated.role);
+      setDetail((current) => (current ? {
+        ...current,
+        summary: { ...current.summary, user: updated },
+      } : current));
+      setAccessRoleNotice('System access role updated successfully.');
+      await load({ silent: true, nextSkip: skip });
+    } catch (err) {
+      setDetailError(errorMessage(err, 'Could not update system access role.'));
+    } finally {
+      setAccessRoleBusy(false);
+    }
+  };
+
   const handleBusinessRoleUpdate = async () => {
     if (!selected) return;
     setBusinessRoleBusy(true);
@@ -267,10 +317,10 @@ export default function Users() {
       const updated = await updateUserBusinessRole(selected.user_id, businessRoleDraft);
       setSelected(updated);
       setBusinessRoleDraft(updated.business_role || 'GENERAL');
-      setDetail((current) => current ? {
+      setDetail((current) => (current ? {
         ...current,
         summary: { ...current.summary, user: updated },
-      } : current);
+      } : current));
       setBusinessRoleNotice('Business role updated. New activity will use this profile.');
       await load({ silent: true, nextSkip: skip });
     } catch (err) {
@@ -296,39 +346,117 @@ export default function Users() {
     return counts;
   }, [users]);
 
-  if (directoryOnly) {
+  // VISITOR MODE: restricted 4-column directory
+  if (isVisitor) {
     return (
       <div className="space-y-6">
         <PageHeader
           eyebrow="User directory"
           title="Users"
-          subtitle="Read-only directory. Only user IDs and access roles are displayed."
-          actions={(
-            <button type="button" onClick={() => load({ silent: true, nextSkip: skip })} className={btnSecondary} disabled={refreshing}>
+          subtitle="Restricted directory view. Only display names, masked email addresses, access roles, and business roles are shown."
+          actions={
+            <button
+              type="button"
+              onClick={() => load({ silent: true, nextSkip: skip })}
+              className={btnSecondary}
+              disabled={refreshing}
+            >
               <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} /> Refresh
             </button>
-          )}
+          }
         />
+
         <InlineNotice tone="neutral">
-          {isVisitor ? 'Visitor' : 'User'} access is read-only. Profiles, contact details, consent, devices, and administrative actions are not available.
+          Visitor mode: You have restricted, read-only directory access. Contact details are masked, and account lifecycle controls are restricted to administrators.
         </InlineNotice>
+
         {error ? <ErrorState message={error} onRetry={() => load()} /> : null}
-        <Panel title="Directory" subtitle={`${users.length} account${users.length === 1 ? '' : 's'} on this page`} bodyClassName="p-0">
-          {loading ? <LoadingState /> : users.length === 0 ? (
-            <EmptyState icon={UsersIcon} title="No directory entries" message="No users are available in this directory view." />
+
+        <Panel
+          title="Directory"
+          subtitle={`${users.length} account${users.length === 1 ? '' : 's'} on this page`}
+          bodyClassName="p-0"
+        >
+          <div className="flex flex-col gap-2 border-b border-slate-800 p-4 lg:flex-row lg:items-center">
+            <SearchInput
+              value={query}
+              onChange={setQuery}
+              onSubmit={handleSearch}
+              placeholder="Search user ID or display name"
+              className="lg:w-80"
+            />
+            <select
+              value={role}
+              onChange={(event) => { setRole(event.target.value); setSkip(0); }}
+              className={`${selectClass} lg:w-36`}
+            >
+              <option value="">All access roles</option>
+              <option value="ADMIN">ADMIN</option>
+              <option value="EDITOR">EDITOR</option>
+              <option value="VISITOR">VISITOR</option>
+              <option value="USER">USER</option>
+            </select>
+            <select
+              value={businessRole}
+              onChange={(event) => { setBusinessRole(event.target.value); setSkip(0); }}
+              className={`${selectClass} lg:w-44`}
+            >
+              <option value="">All business roles</option>
+              <option value="GENERAL">GENERAL</option>
+              <option value="DEVELOPER">DEVELOPER</option>
+              <option value="HR">HR</option>
+              <option value="FINANCE">FINANCE</option>
+            </select>
+            <button type="button" onClick={handleSearch} className={btnSecondary}>
+              Apply
+            </button>
+          </div>
+
+          {loading ? (
+            <LoadingState />
+          ) : users.length === 0 ? (
+            <EmptyState
+              icon={UsersIcon}
+              title="No directory entries"
+              message="No users match the current filter in this directory view."
+            />
           ) : (
             <div className="overflow-x-auto">
               <table className="soc-table">
-                <thead><tr><th>User ID</th><th>Access role</th></tr></thead>
-                <tbody>{users.map((item) => (
-                  <tr key={item.user_id}>
-                    <td className="font-medium text-slate-200">{item.user_id}</td>
-                    <td><Badge tone={item.role === 'ADMIN' ? 'blue' : 'neutral'}>{item.role}</Badge></td>
+                <thead>
+                  <tr>
+                    <th>Display Name</th>
+                    <th>Email</th>
+                    <th>Access role</th>
+                    <th>Business role</th>
                   </tr>
-                ))}</tbody>
+                </thead>
+                <tbody>
+                  {users.map((item) => (
+                    <tr key={item.user_id}>
+                      <td className="font-medium text-slate-200">
+                        {item.display_name || item.user_id}
+                      </td>
+                      <td className="font-mono text-xs text-slate-400">
+                        {item.email || '—'}
+                      </td>
+                      <td>
+                        <Badge tone={item.role === 'ADMIN' ? 'blue' : item.role === 'EDITOR' ? 'purple' : item.role === 'VISITOR' ? 'emerald' : 'neutral'}>
+                          {item.role}
+                        </Badge>
+                      </td>
+                      <td>
+                        <Badge tone={item.business_role === 'GENERAL' ? 'neutral' : 'purple'}>
+                          {item.business_role || 'GENERAL'}
+                        </Badge>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
               </table>
             </div>
           )}
+
           <Pagination
             skip={skip}
             limit={LIMIT}
@@ -342,20 +470,38 @@ export default function Users() {
     );
   }
 
+  // ADMIN, EDITOR, and USER MODES
   return (
     <div className="space-y-6">
       <PageHeader
         eyebrow="User directory"
-        title="Users and endpoint enrollment"
-        subtitle="Administrative view of accounts, consent state, enforcement status and enrolled devices. Device credentials are issued as one-time enrollment tokens; only a hash is stored server-side."
+        title={isAdmin ? 'Users and endpoint enrollment' : 'Users'}
+        subtitle={
+          isAdmin
+            ? 'Administrative view of accounts, consent state, enforcement status and enrolled devices. Device credentials are issued as one-time enrollment tokens; only a hash is stored server-side.'
+            : 'Directory view of users, access roles, business roles, consent and enforcement status.'
+        }
         actions={
           <>
-            <button type="button" onClick={() => load({ silent: true, nextSkip: skip })} className={btnSecondary} disabled={refreshing}>
+            <button
+              type="button"
+              onClick={() => load({ silent: true, nextSkip: skip })}
+              className={btnSecondary}
+              disabled={refreshing}
+            >
               <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />
               Refresh
             </button>
             {isAdmin ? (
-              <button type="button" onClick={() => { setCreateOpen(true); setCreateError(''); setCreateSuccess(''); }} className={btnPrimary}>
+              <button
+                type="button"
+                onClick={() => {
+                  setCreateOpen(true);
+                  setCreateError('');
+                  setCreateSuccess('');
+                }}
+                className={btnPrimary}
+              >
                 <UserPlus size={15} />
                 Create user
               </button>
@@ -364,11 +510,10 @@ export default function Users() {
         }
       />
 
-      {isVisitor ? (
-        <InlineNotice
-          tone="neutral"
-          message="Visitor mode: You have read-only access to the user directory with sanitized contact details. User provisioning, role assignment, and endpoint management are restricted to SOC administrators."
-        />
+      {user?.role === 'USER' ? (
+        <InlineNotice tone="neutral">
+          You have read-only access to the user directory. User provisioning, role assignment, and endpoint management are restricted to SOC administrators.
+        </InlineNotice>
       ) : null}
 
       {error ? <ErrorState message={error} onRetry={() => load()} /> : null}
@@ -389,29 +534,49 @@ export default function Users() {
 
       <Panel title="Directory" subtitle="Consent is enforced by the backend, not just hidden in the UI." bodyClassName="p-0">
         <div className="flex flex-col gap-2 border-b border-slate-800 p-4 lg:flex-row lg:items-center">
-          <SearchInput value={query} onChange={setQuery} onSubmit={handleSearch} placeholder="Search user ID, email or display name" className="lg:w-80" />
-          <select value={consent} onChange={(event) => { setConsent(event.target.value); setSkip(0); }} className={`${selectClass} lg:w-44`}>
+          <SearchInput
+            value={query}
+            onChange={setQuery}
+            onSubmit={handleSearch}
+            placeholder="Search user ID, email or display name"
+            className="lg:w-80"
+          />
+          <select
+            value={consent}
+            onChange={(event) => { setConsent(event.target.value); setSkip(0); }}
+            className={`${selectClass} lg:w-44`}
+          >
             <option value="">All consent states</option>
             <option value="ALLOWED">ALLOWED</option>
             <option value="NOT_ASKED">NOT_ASKED</option>
             <option value="DECLINED">DECLINED</option>
             <option value="REVOKED">REVOKED</option>
           </select>
-          <select value={role} onChange={(event) => { setRole(event.target.value); setSkip(0); }} className={`${selectClass} lg:w-36`}>
+          <select
+            value={role}
+            onChange={(event) => { setRole(event.target.value); setSkip(0); }}
+            className={`${selectClass} lg:w-36`}
+          >
             <option value="">All access roles</option>
             <option value="ADMIN">ADMIN</option>
             <option value="EDITOR">EDITOR</option>
             <option value="VISITOR">VISITOR</option>
             <option value="USER">USER</option>
           </select>
-          <select value={businessRole} onChange={(event) => { setBusinessRole(event.target.value); setSkip(0); }} className={`${selectClass} lg:w-44`}>
+          <select
+            value={businessRole}
+            onChange={(event) => { setBusinessRole(event.target.value); setSkip(0); }}
+            className={`${selectClass} lg:w-44`}
+          >
             <option value="">All business roles</option>
             <option value="GENERAL">GENERAL</option>
             <option value="DEVELOPER">DEVELOPER</option>
             <option value="HR">HR</option>
             <option value="FINANCE">FINANCE</option>
           </select>
-          <button type="button" onClick={handleSearch} className={btnSecondary}>Apply</button>
+          <button type="button" onClick={handleSearch} className={btnSecondary}>
+            Apply
+          </button>
         </div>
 
         {loading ? (
@@ -421,7 +586,14 @@ export default function Users() {
             icon={UsersIcon}
             title="No users match this view"
             message="Adjust the filters or create a user. New users begin in NOT_ASKED consent and cannot be monitored until they allow it."
-            action={<button type="button" className={btnPrimary} onClick={() => setCreateOpen(true)}><Plus size={15} />Create user</button>}
+            action={
+              isAdmin ? (
+                <button type="button" className={btnPrimary} onClick={() => setCreateOpen(true)}>
+                  <Plus size={15} />
+                  Create user
+                </button>
+              ) : null
+            }
           />
         ) : (
           <div className="overflow-x-auto">
@@ -436,7 +608,7 @@ export default function Users() {
                   <th>Active</th>
                   <th>Last login</th>
                   <th>Created</th>
-                  <th className="text-right">Details</th>
+                  {canViewDetails ? <th className="text-right">Details</th> : null}
                 </tr>
               </thead>
               <tbody>
@@ -444,18 +616,47 @@ export default function Users() {
                   <tr key={item.user_id}>
                     <td>
                       <p className="font-semibold text-slate-100">{item.display_name || item.user_id}</p>
-                      <p className="text-[11px] text-slate-500">{item.user_id}{item.email ? ` · ${item.email}` : ''}</p>
+                      <p className="text-[11px] text-slate-500">
+                        {item.user_id}
+                        {item.email ? ` · ${item.email}` : ''}
+                      </p>
                     </td>
-                    <td><Badge tone={item.role === 'ADMIN' ? 'blue' : 'neutral'}>{item.role}</Badge></td>
-                    <td><Badge tone={item.business_role === 'GENERAL' ? 'neutral' : 'purple'}>{item.business_role || 'GENERAL'}</Badge></td>
-                    <td><Badge tone={consentTone(item.monitoring_enabled)}>{item.monitoring_enabled.replace('_', ' ')}</Badge></td>
-                    <td><Badge tone={statusTone(item.enforcement_status)}>{item.enforcement_status}</Badge></td>
-                    <td>{item.is_active ? <span className="text-emerald-400">Yes</span> : <span className="text-red-400">No</span>}</td>
-                    <td className="whitespace-nowrap text-slate-400">{item.last_login_at ? timeAgo(item.last_login_at) : 'Never'}</td>
-                    <td className="whitespace-nowrap text-slate-500">{formatDateTime(item.created_at)}</td>
-                    <td className="text-right">
-                      <button type="button" className={btnSecondary} onClick={() => openDetail(item)}>Open</button>
+                    <td>
+                      <Badge tone={item.role === 'ADMIN' ? 'blue' : item.role === 'EDITOR' ? 'purple' : item.role === 'VISITOR' ? 'emerald' : 'neutral'}>
+                        {item.role}
+                      </Badge>
                     </td>
+                    <td>
+                      <Badge tone={item.business_role === 'GENERAL' ? 'neutral' : 'purple'}>
+                        {item.business_role || 'GENERAL'}
+                      </Badge>
+                    </td>
+                    <td>
+                      <Badge tone={consentTone(item.monitoring_enabled)}>
+                        {item.monitoring_enabled.replace('_', ' ')}
+                      </Badge>
+                    </td>
+                    <td>
+                      <Badge tone={statusTone(item.enforcement_status)}>
+                        {item.enforcement_status}
+                      </Badge>
+                    </td>
+                    <td>
+                      {item.is_active ? <span className="text-emerald-400">Yes</span> : <span className="text-red-400">No</span>}
+                    </td>
+                    <td className="whitespace-nowrap text-slate-400">
+                      {item.last_login_at ? timeAgo(item.last_login_at) : 'Never'}
+                    </td>
+                    <td className="whitespace-nowrap text-slate-500">
+                      {formatDateTime(item.created_at)}
+                    </td>
+                    {canViewDetails ? (
+                      <td className="text-right">
+                        <button type="button" className={btnSecondary} onClick={() => openDetail(item)}>
+                          Open
+                        </button>
+                      </td>
+                    ) : null}
                   </tr>
                 ))}
               </tbody>
@@ -473,271 +674,423 @@ export default function Users() {
         />
       </Panel>
 
-      <Drawer
-        open={Boolean(selected)}
-        onClose={closeDetail}
-        title={selected?.display_name || selected?.user_id || 'User details'}
-        subtitle={selected ? `${selected.user_id}${selected.email ? ` · ${selected.email}` : ''}` : ''}
-        footer={
-          selected ? (
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex flex-wrap gap-2">
-                <Badge tone={selected.role === 'ADMIN' ? 'blue' : selected.role === 'EDITOR' ? 'purple' : selected.role === 'VISITOR' ? 'emerald' : 'neutral'}>{selected.role}</Badge>
-                <Badge tone={consentTone(selected.monitoring_enabled)}>{selected.monitoring_enabled.replace('_', ' ')}</Badge>
-                <Badge tone={statusTone(selected.enforcement_status)}>{selected.enforcement_status}</Badge>
-              </div>
-              <div className="flex items-center gap-2">
-                {isAdmin && selected.user_id !== 'admin' ? (
-                  <button
-                    type="button"
-                    className={btnDanger}
-                    onClick={() => {
-                      setDeleteError('');
-                      setDeleteTarget(selected);
-                    }}
-                  >
-                    Delete account
+      {/* DETAIL DRAWER — Restricted to authorized operators (ADMIN & EDITOR) */}
+      {canViewDetails ? (
+        <Drawer
+          open={Boolean(selected)}
+          onClose={closeDetail}
+          title={selected?.display_name || selected?.user_id || 'User details'}
+          subtitle={selected ? `${selected.user_id}${selected.email ? ` · ${selected.email}` : ''}` : ''}
+          footer={
+            selected ? (
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap gap-2">
+                  <Badge tone={selected.role === 'ADMIN' ? 'blue' : selected.role === 'EDITOR' ? 'purple' : selected.role === 'VISITOR' ? 'emerald' : 'neutral'}>
+                    {selected.role}
+                  </Badge>
+                  <Badge tone={consentTone(selected.monitoring_enabled)}>
+                    {selected.monitoring_enabled.replace('_', ' ')}
+                  </Badge>
+                  <Badge tone={statusTone(selected.enforcement_status)}>
+                    {selected.enforcement_status}
+                  </Badge>
+                </div>
+                <div className="flex items-center gap-2">
+                  {isAdmin && selected.user_id !== 'admin' ? (
+                    <button
+                      type="button"
+                      className={btnDanger}
+                      onClick={() => {
+                        setDeleteError('');
+                        setDeleteTarget(selected);
+                      }}
+                    >
+                      Delete account
+                    </button>
+                  ) : null}
+                  <button type="button" className={btnSecondary} onClick={closeDetail}>
+                    Close
                   </button>
-                ) : null}
-                <button type="button" className={btnSecondary} onClick={closeDetail}>Close</button>
+                </div>
               </div>
-            </div>
-          ) : null
-        }
-      >
-        {detailError ? <ErrorState message={detailError} onRetry={() => selected && openDetail(selected)} /> : null}
-        {detailLoading ? (
-          <LoadingState label="Loading correlated user summary…" />
-        ) : summary ? (
-          <div className="space-y-5">
-            <section className="grid grid-cols-2 gap-3">
-              <KeyValue label="Events · 24h">{formatNumber(summary.activity?.events_last_24h)}</KeyValue>
-              <KeyValue label="Events · 7d">{formatNumber(summary.activity?.events_last_7d)}</KeyValue>
-              <KeyValue label="Last event">{summary.activity?.last_event_at ? formatDateTime(summary.activity.last_event_at) : 'None'}</KeyValue>
-              <KeyValue label="Open alerts">{formatNumber(summary.risk?.open_alerts)}</KeyValue>
-              <KeyValue label="Latest risk">
-                {summary.risk?.latest ? (
-                  <span className="inline-flex items-center gap-2">
-                    <Badge tone={severityTone(summary.risk.latest.risk_category)}>{summary.risk.latest.risk_category}</Badge>
-                    <span className="font-mono">{formatScore(summary.risk.latest.combined_score, 1)}</span>
-                  </span>
-                ) : 'No assessment'}
-              </KeyValue>
-              <KeyValue label="Consent updated">{formatDateTime(summary.user?.consent_updated_at)}</KeyValue>
-            </section>
+            ) : null
+          }
+        >
+          {detailError ? <ErrorState message={detailError} onRetry={() => selected && openDetail(selected)} /> : null}
+          {detailLoading ? (
+            <LoadingState label="Loading correlated user summary…" />
+          ) : summary ? (
+            <div className="space-y-5">
+              <section className="grid grid-cols-2 gap-3">
+                <KeyValue label="Events · 24h">{formatNumber(summary.activity?.events_last_24h)}</KeyValue>
+                <KeyValue label="Events · 7d">{formatNumber(summary.activity?.events_last_7d)}</KeyValue>
+                <KeyValue label="Last event">{summary.activity?.last_event_at ? formatDateTime(summary.activity.last_event_at) : 'None'}</KeyValue>
+                <KeyValue label="Open alerts">{formatNumber(summary.risk?.open_alerts)}</KeyValue>
+                <KeyValue label="Latest risk">
+                  {summary.risk?.latest ? (
+                    <span className="inline-flex items-center gap-2">
+                      <Badge tone={severityTone(summary.risk.latest.risk_category)}>
+                        {summary.risk.latest.risk_category}
+                      </Badge>
+                      <span className="font-mono">{formatScore(summary.risk.latest.combined_score, 1)}</span>
+                    </span>
+                  ) : 'No assessment'}
+                </KeyValue>
+                <KeyValue label="Consent updated">{formatDateTime(summary.user?.consent_updated_at)}</KeyValue>
+              </section>
 
-            <section className="rounded-lg border border-slate-800 bg-slate-900/40 p-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-                <div className="flex-1">
-                  <label className={labelClass} htmlFor="business-role">Business role</label>
+              {isAdmin ? (
+                <section className="rounded-lg border border-slate-800 bg-slate-900/40 p-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                    <div className="flex-1">
+                      <label className={labelClass} htmlFor="access-role">System access role</label>
+                      <select
+                        id="access-role"
+                        className={selectClass}
+                        value={accessRoleDraft}
+                        onChange={(event) => setAccessRoleDraft(event.target.value)}
+                        disabled={accessRoleBusy || selected.user_id === 'admin'}
+                      >
+                        <option value="USER">USER — monitored user with read-only directory</option>
+                        <option value="ADMIN">ADMIN — complete platform control</option>
+                        <option value="EDITOR">EDITOR — operational triage & user directory</option>
+                        <option value="VISITOR">VISITOR — restricted demonstration viewer</option>
+                      </select>
+                    </div>
+                    {selected.user_id !== 'admin' ? (
+                      <button
+                        type="button"
+                        className={btnSecondary}
+                        onClick={handleAccessRoleUpdate}
+                        disabled={accessRoleBusy || accessRoleDraft === selected.role}
+                      >
+                        {accessRoleBusy ? <Loader2 size={14} className="animate-spin" /> : null}
+                        Save access role
+                      </button>
+                    ) : null}
+                  </div>
+                  {selected.user_id === 'admin' ? (
+                    <p className="mt-2 text-[11px] text-amber-400/80">Primary administrator access role is protected.</p>
+                  ) : (
+                    <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+                      Controls platform authorization and management capabilities.
+                    </p>
+                  )}
+                  {accessRoleNotice ? <p className="mt-2 text-xs text-emerald-300">{accessRoleNotice}</p> : null}
+                </section>
+              ) : null}
+
+              <section className="rounded-lg border border-slate-800 bg-slate-900/40 p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                  <div className="flex-1">
+                    <label className={labelClass} htmlFor="business-role">Business role</label>
+                    <select
+                      id="business-role"
+                      className={selectClass}
+                      value={businessRoleDraft}
+                      onChange={(event) => setBusinessRoleDraft(event.target.value)}
+                      disabled={businessRoleBusy || (isEditor && selected.role === 'ADMIN')}
+                    >
+                      <option value="GENERAL">GENERAL — no department profile</option>
+                      <option value="DEVELOPER">DEVELOPER</option>
+                      <option value="HR">HR</option>
+                      <option value="FINANCE">FINANCE</option>
+                    </select>
+                  </div>
+                  {!(isEditor && selected.role === 'ADMIN') ? (
+                    <button
+                      type="button"
+                      className={btnSecondary}
+                      onClick={handleBusinessRoleUpdate}
+                      disabled={businessRoleBusy || businessRoleDraft === (selected.business_role || 'GENERAL')}
+                    >
+                      {businessRoleBusy ? <Loader2 size={14} className="animate-spin" /> : null}
+                      Save business role
+                    </button>
+                  ) : null}
+                </div>
+                <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+                  Role analytics use department-category signals from attributed endpoint events. A role change applies to new events.
+                </p>
+                {businessRoleNotice ? <p className="mt-2 text-xs text-emerald-300">{businessRoleNotice}</p> : null}
+              </section>
+
+              {isAdmin ? (
+                <section className="rounded-lg border border-slate-800 bg-slate-900/40 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-100">Endpoint enrollment</h3>
+                      <p className="mt-0.5 text-[11px] text-slate-500">
+                        Issue a one-time token, then run the agent enrollment command on the device.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      className={btnPrimary}
+                      onClick={handleToken}
+                      disabled={!canEnroll || tokenBusy}
+                    >
+                      {tokenBusy ? <Loader2 size={15} className="animate-spin" /> : <KeyRound size={15} />}
+                      Issue token
+                    </button>
+                  </div>
+                  {!canEnroll ? (
+                    <p className="mt-2 text-[11px] leading-relaxed text-amber-300/90">
+                      The user must be active, not restricted and have ALLOWED consent before a device can be enrolled.
+                    </p>
+                  ) : null}
+                  {tokenError ? <p className="mt-2 text-xs text-red-300">{tokenError}</p> : null}
+                  {tokenData ? (
+                    <div className="mt-3 rounded-lg border border-emerald-900/50 bg-emerald-950/20 p-3">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-300">
+                        One-time enrollment token
+                      </p>
+                      <div className="mt-1.5 flex items-start gap-2">
+                        <code className="min-w-0 flex-1 break-all rounded-md border border-slate-800 bg-slate-950 p-2 font-mono text-[11px] text-emerald-200">
+                          {tokenData.enrollment_token}
+                        </code>
+                        <button
+                          type="button"
+                          className={btnSecondary}
+                          onClick={copyToken}
+                          aria-label="Copy token"
+                        >
+                          {copied ? <Check size={14} /> : <Copy size={14} />}
+                        </button>
+                      </div>
+                      <p className="mt-1.5 text-[10px] text-emerald-300/70">
+                        Expires {formatDateTime(tokenData.expires_at)}. It is shown once and is not stored in plaintext.
+                      </p>
+                      <pre className="mt-2 overflow-x-auto rounded-md border border-slate-800 bg-slate-950 p-2 text-[10px] leading-relaxed text-slate-400">{`python -m agent enroll --token <TOKEN> --backend-url http://localhost:8000/api\npython -m agent run`}</pre>
+                    </div>
+                  ) : null}
+                </section>
+              ) : null}
+
+              <section>
+                <h3 className="mb-2 text-sm font-bold text-slate-100">Devices ({devices.length})</h3>
+                {devices.length === 0 ? (
+                  <p className="rounded-lg border border-slate-800 bg-slate-900/40 p-3 text-xs text-slate-500">
+                    No endpoints enrolled for this user.
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {devices.map((device) => (
+                      <div
+                        key={device.device_id}
+                        className="flex flex-col gap-2 rounded-lg border border-slate-800 bg-slate-900/40 p-3 sm:flex-row sm:items-center sm:justify-between"
+                      >
+                        <div className="flex items-start gap-3">
+                          <span className="mt-0.5 rounded-md border border-slate-800 bg-slate-800/60 p-2 text-slate-400">
+                            <Laptop size={16} />
+                          </span>
+                          <div>
+                            <p className="text-xs font-semibold text-slate-200">
+                              {device.hostname || device.device_id}
+                            </p>
+                            <p className="text-[11px] text-slate-500">
+                              {device.os_version || 'OS unknown'} · Agent {device.agent_version || '0.1.0'}
+                            </p>
+                            <div className="mt-1 flex items-center gap-2">
+                              <Badge tone={device.status === 'ACTIVE' ? 'green' : 'red'}>
+                                {device.status}
+                              </Badge>
+                              <span className="text-[10px] text-slate-500">
+                                Enrolled {formatDateTime(device.enrolled_at)}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {isAdmin && device.status === 'ACTIVE' ? (
+                          <button
+                            type="button"
+                            className={btnDanger}
+                            onClick={() => {
+                              setRevokeError('');
+                              setRevokeTarget(device);
+                            }}
+                          >
+                            <ShieldOff size={14} />
+                            Revoke
+                          </button>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+            </div>
+          ) : null}
+        </Drawer>
+      ) : null}
+
+      {/* CREATE USER MODAL — ADMIN ONLY */}
+      {isAdmin && createOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/75 backdrop-blur-sm"
+            onClick={() => !createBusy && setCreateOpen(false)}
+            aria-label="Close dialog overlay"
+          />
+          <div className="relative w-full max-w-lg rounded-2xl border border-slate-800 bg-[#0d1320] p-6 shadow-2xl">
+            <h2 className="text-lg font-bold text-white">Create user account</h2>
+            <p className="mt-1 text-xs text-slate-400">
+              Provision an account directly. Initial consent state is NOT_ASKED.
+            </p>
+
+            <form onSubmit={handleCreateSubmit} className="mt-4 space-y-3">
+              {createError ? (
+                <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-300">
+                  {createError}
+                </div>
+              ) : null}
+              {createSuccess ? (
+                <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-300">
+                  {createSuccess}
+                </div>
+              ) : null}
+
+              <div>
+                <label htmlFor="create-user-id" className={labelClass}>User ID</label>
+                <input
+                  id="create-user-id"
+                  name="user_id"
+                  required
+                  value={createForm.user_id}
+                  onChange={handleCreateChange}
+                  className={inputClass}
+                  placeholder="analyst.jones"
+                  disabled={createBusy}
+                />
+              </div>
+
+              <div>
+                <label htmlFor="create-email" className={labelClass}>Email address</label>
+                <input
+                  id="create-email"
+                  name="email"
+                  type="email"
+                  required
+                  value={createForm.email}
+                  onChange={handleCreateChange}
+                  className={inputClass}
+                  placeholder="analyst@example.com"
+                  disabled={createBusy}
+                />
+              </div>
+
+              <div>
+                <label htmlFor="create-display-name" className={labelClass}>Display name (optional)</label>
+                <input
+                  id="create-display-name"
+                  name="display_name"
+                  value={createForm.display_name}
+                  onChange={handleCreateChange}
+                  className={inputClass}
+                  placeholder="Analyst Jones"
+                  disabled={createBusy}
+                />
+              </div>
+
+              <div>
+                <label htmlFor="create-password" className={labelClass}>Initial password</label>
+                <input
+                  id="create-password"
+                  name="password"
+                  type="password"
+                  required
+                  value={createForm.password}
+                  onChange={handleCreateChange}
+                  className={inputClass}
+                  placeholder="Minimum 6 characters"
+                  disabled={createBusy}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label htmlFor="create-role" className={labelClass}>Access role</label>
                   <select
-                    id="business-role"
+                    id="create-role"
+                    name="role"
+                    value={createForm.role}
+                    onChange={handleCreateChange}
                     className={selectClass}
-                    value={businessRoleDraft}
-                    onChange={(event) => setBusinessRoleDraft(event.target.value)}
-                    disabled={businessRoleBusy || isVisitor || (isEditor && selected.role === 'ADMIN')}
+                    disabled={createBusy}
                   >
-                    <option value="GENERAL">GENERAL — no department profile</option>
+                    <option value="USER">USER</option>
+                    <option value="ADMIN">ADMIN</option>
+                    <option value="EDITOR">EDITOR</option>
+                    <option value="VISITOR">VISITOR</option>
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="create-business-role" className={labelClass}>Business role</label>
+                  <select
+                    id="create-business-role"
+                    name="business_role"
+                    value={createForm.business_role}
+                    onChange={handleCreateChange}
+                    className={selectClass}
+                    disabled={createBusy}
+                  >
+                    <option value="GENERAL">GENERAL</option>
                     <option value="DEVELOPER">DEVELOPER</option>
                     <option value="HR">HR</option>
                     <option value="FINANCE">FINANCE</option>
                   </select>
                 </div>
-                {!isVisitor && !(isEditor && selected.role === 'ADMIN') ? (
-                  <button type="button" className={btnSecondary} onClick={handleBusinessRoleUpdate} disabled={businessRoleBusy || businessRoleDraft === (selected.business_role || 'GENERAL')}>
-                    {businessRoleBusy ? <Loader2 size={14} className="animate-spin" /> : null}
-                    Save business role
-                  </button>
-                ) : null}
               </div>
-              <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
-                Role analytics use department-category signals from attributed endpoint events. A role change applies to new events.
-              </p>
-              {businessRoleNotice ? <p className="mt-2 text-xs text-emerald-300">{businessRoleNotice}</p> : null}
-            </section>
 
-            {isAdmin ? (
-              <section className="rounded-lg border border-slate-800 bg-slate-900/40 p-4">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <h3 className="text-sm font-bold text-slate-100">Endpoint enrollment</h3>
-                    <p className="mt-0.5 text-[11px] text-slate-500">
-                      Issue a one-time token, then run the agent enrollment command on the device.
-                    </p>
-                  </div>
-                  <button type="button" className={btnPrimary} onClick={handleToken} disabled={!canEnroll || tokenBusy}>
-                    {tokenBusy ? <Loader2 size={15} className="animate-spin" /> : <KeyRound size={15} />}
-                    Issue token
-                  </button>
-                </div>
-                {!canEnroll ? (
-                  <p className="mt-2 text-[11px] leading-relaxed text-amber-300/90">
-                    The user must be active, not restricted and have ALLOWED consent before a device can
-                    be enrolled.
-                  </p>
-                ) : null}
-                {tokenError ? <p className="mt-2 text-xs text-red-300">{tokenError}</p> : null}
-                {tokenData ? (
-                  <div className="mt-3 rounded-lg border border-emerald-900/50 bg-emerald-950/20 p-3">
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-300">One-time enrollment token</p>
-                    <div className="mt-1.5 flex items-start gap-2">
-                      <code className="min-w-0 flex-1 break-all rounded-md border border-slate-800 bg-slate-950 p-2 font-mono text-[11px] text-emerald-200">
-                        {tokenData.enrollment_token}
-                      </code>
-                      <button type="button" className={btnSecondary} onClick={copyToken} aria-label="Copy token">
-                        {copied ? <Check size={14} /> : <Copy size={14} />}
-                      </button>
-                    </div>
-                    <p className="mt-1.5 text-[10px] text-emerald-300/70">
-                      Expires {formatDateTime(tokenData.expires_at)}. It is shown once and is not stored in
-                      plaintext.
-                    </p>
-                    <pre className="mt-2 overflow-x-auto rounded-md border border-slate-800 bg-slate-950 p-2 text-[10px] leading-relaxed text-slate-400">{`python -m agent enroll --token <TOKEN> --backend-url http://localhost:8000/api
-python -m agent run`}</pre>
-                  </div>
-                ) : null}
-              </section>
-            ) : null}
+              <div className="flex justify-end gap-2 pt-3">
+                <button
+                  type="button"
+                  className={btnSecondary}
+                  onClick={() => setCreateOpen(false)}
+                  disabled={createBusy}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className={btnPrimary}
+                  disabled={createBusy}
+                >
+                  {createBusy ? <Loader2 size={14} className="animate-spin" /> : null}
+                  Create account
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
 
-            <section>
-              <h3 className="mb-2 text-sm font-bold text-slate-100">Devices ({devices.length})</h3>
-              {devices.length === 0 ? (
-                <p className="rounded-lg border border-slate-800 bg-slate-900/40 p-3 text-xs text-slate-500">
-                  No endpoints enrolled for this user.
-                </p>
-              ) : (
-                <div className="space-y-2">
-                  {devices.map((device) => (
-                    <div key={device.device_id} className="rounded-lg border border-slate-800 bg-slate-900/40 p-3">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="flex items-center gap-2 text-xs font-semibold text-slate-200">
-                            <Laptop size={13} /> {device.hostname || device.device_id}
-                          </p>
-                          <p className="mt-0.5 truncate text-[10px] text-slate-500">{device.device_id}</p>
-                          <p className="mt-1 text-[10px] text-slate-500">
-                            {device.os_version || 'OS unknown'} · agent {device.agent_version || '—'}
-                          </p>
-                          <p className="mt-0.5 text-[10px] text-slate-500">
-                            Enrolled {formatDateTime(device.enrolled_at)} · heartbeat{' '}
-                            {device.last_heartbeat ? timeAgo(device.last_heartbeat) : 'never'}
-                          </p>
-                          {device.revoked_reason ? (
-                            <p className="mt-1 text-[10px] text-red-300">Revoked: {device.revoked_reason}</p>
-                          ) : null}
-                        </div>
-                        <div className="flex shrink-0 flex-col items-end gap-1.5">
-                          <Badge tone={statusTone(device.status)}>{device.status}</Badge>
-                          {device.status === 'ACTIVE' && isAdmin ? (
-                            <button type="button" className={btnDanger} onClick={() => { setRevokeError(''); setRevokeTarget(device); }}>
-                              Revoke
-                            </button>
-                          ) : null}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
-          </div>
-        ) : null}
-      </Drawer>
-
-      <Drawer
-        open={createOpen}
-        onClose={() => setCreateOpen(false)}
-        title="Create a user account"
-        subtitle="Administrative provisioning only. There is no public registration endpoint."
-      >
-        <form onSubmit={handleCreate} className="space-y-4">
-          <div>
-            <label className={labelClass} htmlFor="new-user-id">User ID</label>
-            <input id="new-user-id" className={inputClass} value={createForm.user_id} onChange={(event) => setCreateForm({ ...createForm, user_id: event.target.value })} placeholder="e.g. alice.analyst" required minLength={2} maxLength={64} />
-            <p className="mt-1 text-[10px] text-slate-500">Letters, digits, hyphen, underscore and dot only.</p>
-          </div>
-          <div>
-            <label className={labelClass} htmlFor="new-email">Email</label>
-            <input id="new-email" type="email" className={inputClass} value={createForm.email} onChange={(event) => setCreateForm({ ...createForm, email: event.target.value })} placeholder="alice@example.com" required />
-          </div>
-          <div>
-            <label className={labelClass} htmlFor="new-display-name">Display name (optional)</label>
-            <input id="new-display-name" className={inputClass} value={createForm.display_name} onChange={(event) => setCreateForm({ ...createForm, display_name: event.target.value })} placeholder="Alice Analyst" maxLength={120} />
-          </div>
-          <div>
-            <label className={labelClass} htmlFor="new-password">Initial password</label>
-            <input id="new-password" type="password" className={inputClass} value={createForm.password} onChange={(event) => setCreateForm({ ...createForm, password: event.target.value })} placeholder="At least 12 characters" required minLength={12} maxLength={72} autoComplete="new-password" />
-            <p className="mt-1 text-[10px] text-slate-500">The password is sent once and is never stored in this interface.</p>
-          </div>
-          <div>
-            <label className={labelClass} htmlFor="new-role">Application access role</label>
-            <select id="new-role" className={selectClass} value={createForm.role} onChange={(event) => setCreateForm({ ...createForm, role: event.target.value })}>
-              <option value="USER">USER — monitored employee account</option>
-              <option value="EDITOR">EDITOR — SOC operator (operational triage)</option>
-              <option value="VISITOR">VISITOR — Demonstration viewer (read-only)</option>
-              <option value="ADMIN">ADMIN — Full SOC administrator</option>
-            </select>
-          </div>
-          <div>
-            <label className={labelClass} htmlFor="new-business-role">Business role</label>
-            <select id="new-business-role" className={selectClass} value={createForm.business_role} onChange={(event) => setCreateForm({ ...createForm, business_role: event.target.value })}>
-              <option value="GENERAL">GENERAL — no department profile</option>
-              <option value="DEVELOPER">DEVELOPER</option>
-              <option value="HR">HR</option>
-              <option value="FINANCE">FINANCE</option>
-            </select>
-            <p className="mt-1 text-[10px] text-slate-500">Used for role-aware behavior analysis, separate from ADMIN/USER permissions.</p>
-          </div>
-
-          {createError ? <p className="rounded-lg border border-red-900/50 bg-red-950/20 p-3 text-xs text-red-200">{createError}</p> : null}
-          {createSuccess ? <InlineNotice tone="success">{createSuccess}</InlineNotice> : null}
-
-          <div className="flex justify-end gap-2 border-t border-slate-800 pt-4">
-            <button type="button" className={btnSecondary} onClick={() => setCreateOpen(false)}>Close</button>
-            <button type="submit" className={btnPrimary} disabled={createBusy}>
-              {createBusy ? <Loader2 size={15} className="animate-spin" /> : <ShieldCheck size={15} />}
-              Create account
-            </button>
-          </div>
-          <p className="flex items-center gap-1.5 text-[10px] text-slate-500">
-            <ShieldOff size={12} /> New accounts start with NOT_ASKED consent unless they allow monitoring.
-          </p>
-        </form>
-      </Drawer>
-
+      {/* REVOKE DEVICE CONFIRMATION */}
       <ConfirmDialog
         open={Boolean(revokeTarget)}
-        title="Revoke this device?"
-        message={
-          <span>
-            The agent credential for <strong className="text-slate-200">{revokeTarget?.hostname || revokeTarget?.device_id}</strong>{' '}
-            will stop working immediately. The device must complete enrollment again with a new
-            one-time token.
-          </span>
-        }
-        confirmLabel="Revoke device"
-        requireReason
+        title="Revoke device access"
+        message={`Are you sure you want to revoke endpoint ${revokeTarget?.hostname || revokeTarget?.device_id}? The device will be disconnected immediately and cannot send telemetry until re-enrolled.`}
+        confirmLabel={revokeBusy ? 'Revoking…' : 'Revoke device'}
+        tone="red"
         busy={revokeBusy}
         error={revokeError}
-        onClose={() => { if (!revokeBusy) { setRevokeTarget(null); setRevokeError(''); } }}
         onConfirm={handleRevoke}
+        onCancel={() => !revokeBusy && setRevokeTarget(null)}
       />
 
+      {/* DELETE USER CONFIRMATION */}
       <ConfirmDialog
         open={Boolean(deleteTarget)}
-        title={`Delete account ${deleteTarget?.user_id}?`}
-        message={
-          <span>
-            Are you sure you want to delete user <strong className="text-slate-200">{deleteTarget?.user_id}</strong>?
-            This will permanently remove the account from the directory.
-          </span>
-        }
-        confirmLabel="Delete User"
-        tone="danger"
+        title="Delete user account"
+        message={`Are you sure you want to permanently delete account ${deleteTarget?.user_id}? Associated devices and session records will no longer authenticate.`}
+        confirmLabel={deleteBusy ? 'Deleting…' : 'Delete account'}
+        tone="red"
         busy={deleteBusy}
         error={deleteError}
-        onClose={() => { if (!deleteBusy) { setDeleteTarget(null); setDeleteError(''); } }}
-        onConfirm={handleDeleteUser}
+        onConfirm={handleDelete}
+        onCancel={() => !deleteBusy && setDeleteTarget(null)}
       />
     </div>
   );

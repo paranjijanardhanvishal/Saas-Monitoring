@@ -32,20 +32,41 @@ async def test_user_directory_is_restricted_for_user_and_visitor(client, db):
     member = {"Authorization": f"Bearer {(await login(client, 'member-rbac'))['access_token']}"}
     visitor = {"Authorization": f"Bearer {(await login(client, 'visitor-rbac'))['access_token']}"}
 
+    # ADMIN: full directory with full details
     admin_list = await client.get("/api/users", headers=admin)
     assert admin_list.status_code == 200
     ids = {u["user_id"] for u in admin_list.json()}
     assert {"admin-rbac", "member-rbac"} <= ids
     assert next(u for u in admin_list.json() if u["user_id"] == "member-rbac")["email"] == "member-secret@example.com"
 
-    for headers in (member, visitor):
-        directory = await client.get("/api/users/directory", headers=headers)
-        assert directory.status_code == 200
-        assert {entry["user_id"] for entry in directory.json()} >= {"admin-rbac", "member-rbac", "visitor-rbac"}
-        assert all(set(entry) == {"user_id", "role"} for entry in directory.json())
-        assert "member-secret@example.com" not in directory.text
-        assert "Private Member" not in directory.text
-        assert (await client.get("/api/users", headers=headers)).status_code == 403
+    # USER: read-only directory with full emails and names
+    member_list = await client.get("/api/users", headers=member)
+    assert member_list.status_code == 200
+    member_entry = next(u for u in member_list.json() if u["user_id"] == "member-rbac")
+    assert member_entry["email"] == "member-secret@example.com"
+    assert member_entry["display_name"] == "Private Member"
+    assert "role" in member_entry
+    assert "business_role" in member_entry
+    assert "monitoring_enabled" in member_entry
+    assert "enforcement_status" in member_entry
+
+    # VISITOR: denied from /api/users (403)
+    visitor_full = await client.get("/api/users", headers=visitor)
+    assert visitor_full.status_code == 403
+
+    # VISITOR: restricted directory with masked emails only
+    directory = await client.get("/api/users/directory", headers=visitor)
+    assert directory.status_code == 200
+    assert {entry["user_id"] for entry in directory.json()} >= {"admin-rbac", "member-rbac", "visitor-rbac"}
+    # Emails are masked for VISITOR
+    assert "member-secret@example.com" not in directory.text
+    visitor_entry = next(e for e in directory.json() if e["user_id"] == "visitor-rbac")
+    assert visitor_entry["email"].startswith("v*")
+    # Restricted directory does NOT expose consent, enforcement, or dates
+    for entry in directory.json():
+        assert "monitoring_enabled" not in entry
+        assert "enforcement_status" not in entry
+        assert "created_at" not in entry
 
 
 @pytest.mark.asyncio

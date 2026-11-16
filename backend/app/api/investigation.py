@@ -28,7 +28,7 @@ def _mask_email(email: Optional[str]) -> Optional[str]:
     if len(parts) != 2:
         return "***"
     name, domain = parts
-    masked_name = name[0] + "***" if len(name) > 1 else "***"
+    masked_name = name[0] + "*" * (len(name) - 1) if name else "***"
     return f"{masked_name}@{domain}"
 
 
@@ -60,6 +60,15 @@ async def search_users(
 
     results = []
     for user in users:
+        if current_user.role == "VISITOR":
+            results.append({
+                "user_id": user.get("user_id"),
+                "display_name": user.get("display_name"),
+                "email": _mask_email(user.get("email")),
+                "role": user.get("role", "USER"),
+                "business_role": user.get("business_role", "GENERAL"),
+            })
+            continue
         response = UserResponse(**user).model_dump()
         response["active_devices"] = await db.devices.count_documents(
             {"user_id": user["user_id"], "status": "ACTIVE"}

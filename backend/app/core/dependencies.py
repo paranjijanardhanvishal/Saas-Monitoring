@@ -1,5 +1,6 @@
 import hashlib
 import logging
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Optional
@@ -19,6 +20,24 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=Fals
 UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 CSRF_COOKIE = "csrf_token"
 CSRF_HEADER = "x-csrf-token"
+USER_MUTATION_PATHS = {
+    "/api/auth/logout",
+    "/api/auth/consent",
+    "/api/auth/change-password",
+}
+VISITOR_MUTATION_PATHS = {"/api/auth/logout"}
+
+
+def _enforce_role_mutation_policy(request: Request, user: UserModel) -> None:
+    """Apply cross-module write rules to every cookie/JWT-authenticated API route."""
+    if request.method not in UNSAFE_METHODS or user.role in ("ADMIN", "EDITOR", "USER"):
+        return
+
+    route = request.scope.get("route")
+    path = getattr(route, "path", request.url.path)
+    if user.role == "VISITOR" and path in VISITOR_MUTATION_PATHS:
+        return
+    raise HTTPException(status_code=403, detail="Visitor accounts are read-only.")
 
 
 def _extract_user_token(request: Request, bearer_token: Optional[str]) -> tuple[Optional[str], bool]:
@@ -69,6 +88,8 @@ async def get_current_user(
     if not user.is_active:
         raise HTTPException(status_code=403, detail="Account is disabled")
 
+    _enforce_role_mutation_policy(request, user)
+
     # CSRF protection for cookie-authenticated state-changing requests.
     if via_cookie and request.method in UNSAFE_METHODS:
         cookie_token = request.cookies.get(CSRF_COOKIE)
@@ -102,10 +123,11 @@ async def get_current_soc_operator(current_user: UserModel = Depends(get_current
 
 
 def ensure_self_or_admin(current_user: UserModel, user_id: Optional[str]) -> None:
-    if current_user.role in ("ADMIN", "EDITOR", "VISITOR"):
+    if current_user.role in ("ADMIN", "EDITOR"):
         return
-    if not user_id or current_user.user_id != user_id:
-        raise HTTPException(status_code=403, detail="Access denied for this user")
+    if current_user.role == "USER" and user_id and current_user.user_id == user_id:
+        return
+    raise HTTPException(status_code=403, detail="Access denied for this user")
 
 
 @dataclass
