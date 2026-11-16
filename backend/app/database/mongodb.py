@@ -105,6 +105,11 @@ INDEX_DEFINITIONS: dict[str, list[IndexModel]] = {
     "events": [
         IndexModel([("event_id", ASCENDING)], unique=True),
         IndexModel([("timestamp", DESCENDING)]),
+        IndexModel(
+            [("timestamp", ASCENDING)],
+            expireAfterSeconds=settings.EVENT_RETENTION_DAYS * 86400,
+            name="events_ttl_idx",
+        ),
         IndexModel([("user_id", ASCENDING), ("timestamp", DESCENDING)]),
         IndexModel([("device_id", ASCENDING), ("timestamp", DESCENDING)]),
         IndexModel([("source", ASCENDING), ("timestamp", DESCENDING)]),
@@ -149,6 +154,11 @@ INDEX_DEFINITIONS: dict[str, list[IndexModel]] = {
     ],
     "audit_logs": [
         IndexModel([("timestamp", DESCENDING)]),
+        IndexModel(
+            [("timestamp", ASCENDING)],
+            expireAfterSeconds=settings.AUDIT_RETENTION_DAYS * 86400,
+            name="audit_logs_ttl_idx",
+        ),
         IndexModel([("actor_id", ASCENDING), ("timestamp", DESCENDING)]),
         IndexModel([("target_id", ASCENDING), ("timestamp", DESCENDING)]),
     ],
@@ -163,10 +173,33 @@ INDEX_DEFINITIONS: dict[str, list[IndexModel]] = {
 
 
 async def _create_col_indexes(collection: str, indexes: list) -> None:
+    if db_client.db is None or not indexes:
+        return
     try:
         await db_client.db[collection].create_indexes(indexes)
     except (DuplicateKeyError, OperationFailure) as exc:
-        logger.warning("Could not create all indexes for %s: %s", collection, exc)
+        logger.warning(
+            "Batch index creation conflict on collection '%s': %s; attempting individual index creation",
+            collection,
+            exc,
+        )
+        for idx in indexes:
+            try:
+                await db_client.db[collection].create_indexes([idx])
+            except (DuplicateKeyError, OperationFailure) as item_exc:
+                logger.error(
+                    "Index creation conflict on collection '%s' for index %s: %s",
+                    collection,
+                    getattr(idx, "document", idx),
+                    item_exc,
+                )
+            except Exception as item_exc:
+                logger.exception(
+                    "Unexpected failure creating index %s on '%s': %s",
+                    getattr(idx, "document", idx),
+                    collection,
+                    item_exc,
+                )
     except Exception:
         logger.exception("Unexpected failure creating indexes for %s", collection)
 

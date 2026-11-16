@@ -53,10 +53,14 @@ async def lifespan(app: FastAPI):
     logger.info("API shutdown complete")
 
 
+is_production = settings.APP_ENV.lower() == "production"
+
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version="2.0.0",
-    openapi_url=f"{settings.API_V1_STR}/openapi.json",
+    docs_url=None if is_production else "/docs",
+    redoc_url=None if is_production else "/redoc",
+    openapi_url=None if is_production else f"{settings.API_V1_STR}/openapi.json",
     lifespan=lifespan,
 )
 
