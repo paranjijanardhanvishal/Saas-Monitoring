@@ -232,7 +232,7 @@ export default function Login() {
           </div>
 
           {sessionMessage ? (
-            <div className="mb-5 rounded-lg border border-amber-900/50 bg-amber-950/20 p-3 text-xs text-amber-200">
+            <div className="mb-5 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-200">
               {sessionMessage}
             </div>
           ) : null}
@@ -240,7 +240,7 @@ export default function Login() {
           {error ? (
             <div
               role="alert"
-              className="mb-5 rounded-lg border border-red-900/50 bg-red-950/20 p-3 text-xs leading-relaxed text-red-200"
+              className="mb-5 rounded-lg border border-red-200 bg-red-50 p-3 text-xs leading-relaxed text-red-800 dark:border-red-900/50 dark:bg-red-950/20 dark:text-red-200"
             >
               {error}
             </div>

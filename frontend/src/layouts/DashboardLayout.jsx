@@ -139,17 +139,17 @@ export default function DashboardLayout() {
 
   const sidebar = (
     <div className="flex h-full flex-col">
-      <div className="flex h-16 shrink-0 items-center gap-3 border-b border-slate-800 px-5">
-        <span className="flex h-9 w-9 items-center justify-center rounded-lg border border-blue-500/30 bg-blue-500/10 text-blue-400">
-          <ShieldCheck size={19} />
+      <div className="flex h-16 shrink-0 items-center gap-3 border-b border-slate-200 px-5 dark:border-slate-800">
+        <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-600 text-white shadow-xs">
+          <ShieldCheck size={20} />
         </span>
         <div className="min-w-0">
-          <p className="truncate text-sm font-bold tracking-tight text-white">SaaS Security Monitor</p>
-          <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">SOC console</p>
+          <p className="truncate text-sm font-bold tracking-tight text-slate-900 dark:text-white">SaaS Security Monitor</p>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">SOC console</p>
         </div>
         <button
           type="button"
-          className="ml-auto rounded-md p-1.5 text-slate-400 hover:bg-slate-800 hover:text-white lg:hidden"
+          className="ml-auto rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-900 lg:hidden dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
           onClick={() => setMobileOpen(false)}
           aria-label="Close navigation"
         >
@@ -160,7 +160,7 @@ export default function DashboardLayout() {
       <nav className="custom-scrollbar flex-1 overflow-y-auto px-3 py-4">
         {groups.map((group) => (
           <div key={group.label} className="mb-5">
-            <p className="mb-1.5 px-3 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-600">
+            <p className="mb-1.5 px-3 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400 dark:text-slate-500">
               {group.label}
             </p>
             <div className="space-y-0.5">
@@ -172,18 +172,18 @@ export default function DashboardLayout() {
                     to={item.path}
                     className={({ isActive }) =>
                       cx(
-                        'group flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition',
+                        'group flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition',
                         isActive
-                          ? 'bg-blue-500/10 text-blue-300 ring-1 ring-inset ring-blue-500/20'
-                          : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-100',
+                          ? 'border-r-2 border-blue-600 bg-blue-50 font-semibold text-blue-700 dark:border-blue-500 dark:bg-blue-950/40 dark:text-blue-300'
+                          : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800/60 dark:hover:text-slate-100',
                       )
                     }
                   >
                     {({ isActive }) => (
                       <>
-                        <Icon size={16} className={isActive ? 'text-blue-400' : 'text-slate-500 group-hover:text-slate-300'} />
+                        <Icon size={17} className={isActive ? 'text-blue-600 dark:text-blue-400' : 'text-slate-400 group-hover:text-slate-600 dark:text-slate-500 dark:group-hover:text-slate-300'} />
                         <span className="truncate">{item.name}</span>
-                        {isActive ? <ChevronRight size={13} className="ml-auto text-blue-400/70" /> : null}
+                        {isActive ? <ChevronRight size={14} className="ml-auto text-blue-600/70 dark:text-blue-400/70" /> : null}
                       </>
                     )}
                   </NavLink>
@@ -194,30 +194,30 @@ export default function DashboardLayout() {
         ))}
       </nav>
 
-      <div className="shrink-0 border-t border-slate-800 p-3">
+      <div className="shrink-0 border-t border-slate-200 p-3 dark:border-slate-800">
         <Link
           to="/consent"
-          className="mb-2 flex items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-900/50 px-3 py-2 text-xs text-slate-400 transition hover:border-slate-700 hover:text-slate-200"
+          className="mb-2 flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2 text-xs text-slate-600 transition hover:border-slate-300 hover:bg-slate-100 hover:text-slate-900 dark:border-slate-800 dark:bg-slate-900/50 dark:text-slate-400 dark:hover:border-slate-700 dark:hover:text-slate-200"
         >
-          <span className="flex items-center gap-2">
+          <span className="flex items-center gap-2 font-medium">
             {consentState === 'ALLOWED' ? (
-              <ShieldCheck size={14} className="text-emerald-400" />
+              <ShieldCheck size={14} className="text-emerald-600 dark:text-emerald-400" />
             ) : (
-              <ShieldOff size={14} className="text-amber-400" />
+              <ShieldOff size={14} className="text-amber-600 dark:text-amber-400" />
             )}
             Privacy &amp; consent
           </span>
           <Badge tone={consentTone(consentState)}>{consentState.replace('_', ' ')}</Badge>
         </Link>
-        <div className="flex items-center gap-2 rounded-lg px-2 py-1.5">
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-slate-700 bg-slate-800 text-xs font-bold text-slate-300">
+        <div className="flex items-center gap-2.5 rounded-lg border border-slate-200 bg-slate-50/60 px-2.5 py-2 dark:border-slate-800/80 dark:bg-slate-900/30">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-blue-700 dark:border dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
             {(user.display_name || user.user_id || '?').slice(0, 2).toUpperCase()}
           </span>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-xs font-semibold text-slate-200">
+            <p className="truncate text-xs font-semibold text-slate-900 dark:text-slate-200">
               {user.display_name || user.user_id}
             </p>
-            <p className="truncate text-[10px] text-slate-500">{user.email || user.user_id}</p>
+            <p className="truncate text-[10px] text-slate-500 dark:text-slate-400">{user.email || user.user_id}</p>
           </div>
           <button
             type="button"
@@ -226,7 +226,7 @@ export default function DashboardLayout() {
               setPwdSuccess('');
               setShowPasswordModal(true);
             }}
-            className="rounded-md p-2 text-slate-500 transition hover:bg-slate-800 hover:text-slate-200"
+            className="rounded-md p-1.5 text-slate-500 transition hover:bg-slate-200 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
             title="Change password"
             aria-label="Change password"
           >
@@ -235,7 +235,7 @@ export default function DashboardLayout() {
           <button
             type="button"
             onClick={handleLogout}
-            className="rounded-md p-2 text-slate-500 transition hover:bg-slate-800 hover:text-red-300"
+            className="rounded-md p-1.5 text-slate-500 transition hover:bg-red-50 hover:text-red-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-red-400"
             title="Sign out"
             aria-label="Sign out"
           >
@@ -247,8 +247,8 @@ export default function DashboardLayout() {
   );
 
   return (
-    <div className="flex h-screen overflow-hidden bg-[#0b0f19] text-slate-200">
-      <aside className="hidden w-64 shrink-0 border-r border-slate-800 bg-[#0a0f1a] lg:block">
+    <div className="flex h-screen overflow-hidden bg-[#F8FAFC] text-slate-800 dark:bg-[#0b0f19] dark:text-slate-200">
+      <aside className="hidden w-64 shrink-0 border-r border-slate-200 bg-white lg:block dark:border-slate-800 dark:bg-[#0a0f1a]">
         {sidebar}
       </aside>
 
@@ -258,30 +258,30 @@ export default function DashboardLayout() {
             type="button"
             aria-label="Close navigation"
             onClick={() => setMobileOpen(false)}
-            className="absolute inset-0 bg-black/60"
+            className="absolute inset-0 bg-slate-900/60 backdrop-blur-xs"
           />
-          <aside className="relative h-full w-72 border-r border-slate-800 bg-[#0a0f1a] shadow-2xl">
+          <aside className="relative h-full w-72 border-r border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-[#0a0f1a]">
             {sidebar}
           </aside>
         </div>
       ) : null}
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-16 shrink-0 items-center gap-3 border-b border-slate-800 bg-[#0d1320]/90 px-4 backdrop-blur sm:px-6">
+        <header className="flex h-16 shrink-0 items-center gap-3 border-b border-slate-200 bg-white/95 px-4 backdrop-blur-xs sm:px-6 dark:border-slate-800 dark:bg-[#0d1320]/90">
           <button
             type="button"
             onClick={() => setMobileOpen(true)}
-            className="rounded-md p-2 text-slate-400 hover:bg-slate-800 hover:text-white lg:hidden"
+            className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-900 lg:hidden dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
             aria-label="Open navigation"
           >
             <Menu size={19} />
           </button>
 
           <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-white">
+            <p className="truncate text-sm font-bold text-slate-900 dark:text-white">
               {activeItem?.name || 'Security console'}
             </p>
-            <p className="hidden text-[11px] text-slate-500 sm:block">
+            <p className="hidden text-[11px] text-slate-500 sm:block dark:text-slate-400">
               {isAdmin
                 ? 'Administrator scope: full control'
                 : isEditor
@@ -296,7 +296,7 @@ export default function DashboardLayout() {
             <button
               type="button"
               onClick={toggleTheme}
-              className="flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800/60 px-2.5 py-1.5 text-xs font-medium text-slate-300 transition hover:bg-slate-800 hover:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+              className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-semibold text-slate-700 shadow-xs transition hover:border-slate-300 hover:bg-slate-100 hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600/40 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
               aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
               title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
             >
@@ -307,7 +307,7 @@ export default function DashboardLayout() {
                 </>
               ) : (
                 <>
-                  <Moon size={15} className="text-blue-400" />
+                  <Moon size={15} className="text-blue-600" />
                   <span className="hidden sm:inline">Dark</span>
                 </>
               )}
@@ -329,11 +329,13 @@ export default function DashboardLayout() {
         </header>
 
         {user.must_change_password ? (
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-xs text-amber-200 sm:px-6">
-            <div className="flex items-center gap-2">
-              <ShieldAlert size={15} className="shrink-0 text-amber-400" />
-              <span>
-                <strong>Security action required:</strong> You are signed in with a temporary password. Please set a new password (min 12 characters).
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-amber-200 bg-amber-50/95 px-4 py-3 text-xs text-amber-900 shadow-xs sm:px-6 dark:border-amber-800/40 dark:bg-amber-950/30 dark:text-amber-200">
+            <div className="flex items-center gap-2.5">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300">
+                <ShieldAlert size={16} />
+              </span>
+              <span className="leading-snug">
+                <strong className="font-semibold text-amber-950 dark:text-amber-100">Security action required:</strong> You are signed in with a temporary password. Please set a new password (min 12 characters).
               </span>
             </div>
             <button
@@ -343,7 +345,7 @@ export default function DashboardLayout() {
                 setPwdSuccess('');
                 setShowPasswordModal(true);
               }}
-              className="inline-flex items-center gap-1.5 rounded-md bg-amber-500/20 px-3 py-1 font-semibold text-amber-200 ring-1 ring-inset ring-amber-500/40 hover:bg-amber-500/30 hover:text-white"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-amber-700 px-3 py-1.5 text-xs font-semibold text-white shadow-xs transition hover:bg-amber-800 focus:outline-none focus:ring-2 focus:ring-amber-600/50 dark:bg-amber-600 dark:hover:bg-amber-500 dark:text-white"
             >
               Update Password
             </button>
@@ -351,14 +353,16 @@ export default function DashboardLayout() {
         ) : null}
 
         {monitoringPaused ? (
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-amber-900/40 bg-amber-950/20 px-4 py-2.5 text-xs text-amber-200 sm:px-6">
-            <ShieldOff size={14} className="shrink-0 text-amber-400" />
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-amber-200 bg-amber-50/80 px-4 py-2.5 text-xs text-amber-900 sm:px-6 dark:border-amber-800/40 dark:bg-amber-950/20 dark:text-amber-200">
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+              <ShieldOff size={14} />
+            </span>
             <span>
               Endpoint monitoring is <strong>paused</strong> because consent is{' '}
-              {consentState.replace('_', ' ')}. The backend rejects endpoint events until you allow
+              <span className="font-semibold">{consentState.replace('_', ' ')}</span>. The backend rejects endpoint events until you allow
               monitoring.
             </span>
-            <Link to="/consent" className="font-semibold text-amber-100 underline underline-offset-2 hover:text-white">
+            <Link to="/consent" className="font-semibold text-amber-800 underline underline-offset-2 hover:text-amber-950 dark:text-amber-300 dark:hover:text-white">
               Review consent
             </Link>
           </div>
@@ -377,13 +381,13 @@ export default function DashboardLayout() {
             type="button"
             aria-label="Close modal"
             onClick={() => (!pwdBusy ? setShowPasswordModal(false) : null)}
-            className="absolute inset-0 cursor-default bg-black/70 backdrop-blur-sm"
+            className="absolute inset-0 cursor-default bg-slate-900/60 backdrop-blur-xs"
           />
-          <div className="relative w-full max-w-md rounded-xl border border-slate-800 bg-[#0e1422] p-6 shadow-2xl">
+          <div className="relative w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-800 dark:bg-[#0e1422]">
             <div className="flex items-start justify-between">
               <div>
-                <h2 className="text-base font-bold text-white">Change Password</h2>
-                <p className="mt-1 text-xs text-slate-400">
+                <h2 className="text-base font-bold text-slate-900 dark:text-white">Change Password</h2>
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                   {user.must_change_password
                     ? 'Your account requires an updated password before continued operational use.'
                     : 'Update your account password. Must be at least 12 characters.'}
@@ -393,7 +397,7 @@ export default function DashboardLayout() {
                 type="button"
                 onClick={() => setShowPasswordModal(false)}
                 disabled={pwdBusy}
-                className="rounded-md p-1.5 text-slate-400 hover:bg-slate-800 hover:text-white"
+                className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-white"
               >
                 <X size={16} />
               </button>

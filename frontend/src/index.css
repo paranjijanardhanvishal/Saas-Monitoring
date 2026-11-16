@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *, .dark, .dark *));
+
 :root {
   color-scheme: dark;
 }
@@ -289,7 +291,7 @@ div[data-netlify-site-id] {
 .light .bg-emerald-950\/40 {
   background-color: #ecfdf5 !important;
   border-color: #a7f3d0 !important;
-  color: #047857 !important;
+  color: #059669 !important;
 }
 
 [data-theme="light"] .bg-amber-950\/40,
@@ -299,11 +301,18 @@ div[data-netlify-site-id] {
   color: #b45309 !important;
 }
 
+[data-theme="light"] .bg-orange-950\/40,
+.light .bg-orange-950\/40 {
+  background-color: #fff7ed !important;
+  border-color: #fed7aa !important;
+  color: #c2410c !important;
+}
+
 [data-theme="light"] .bg-red-950\/40,
 .light .bg-red-950\/40 {
   background-color: #fef2f2 !important;
   border-color: #fecaca !important;
-  color: #b91c1c !important;
+  color: #dc2626 !important;
 }
 
 [data-theme="light"] .bg-purple-950\/40,
@@ -313,11 +322,66 @@ div[data-netlify-site-id] {
   color: #6b21a8 !important;
 }
 
+[data-theme="light"] .bg-cyan-950\/40,
+.light .bg-cyan-950\/40 {
+  background-color: #ecfeff !important;
+  border-color: #a5f3fc !important;
+  color: #0e7490 !important;
+}
+
 [data-theme="light"] .bg-slate-800\/60,
 .light .bg-slate-800\/60 {
   background-color: #f1f5f9 !important;
   border-color: #e2e8f0 !important;
   color: #475569 !important;
+}
+
+/* Accessible text & banner tints in light mode */
+[data-theme="light"] .text-amber-200,
+[data-theme="light"] .text-amber-300,
+[data-theme="light"] .text-amber-400,
+.light .text-amber-200,
+.light .text-amber-300,
+.light .text-amber-400 {
+  color: #b45309 !important;
+}
+
+[data-theme="light"] .text-emerald-400,
+[data-theme="light"] .text-emerald-300,
+.light .text-emerald-400,
+.light .text-emerald-300 {
+  color: #059669 !important;
+}
+
+[data-theme="light"] .text-red-400,
+[data-theme="light"] .text-red-300,
+.light .text-red-400,
+.light .text-red-300 {
+  color: #dc2626 !important;
+}
+
+[data-theme="light"] .text-blue-400,
+[data-theme="light"] .text-blue-300,
+.light .text-blue-400,
+.light .text-blue-300 {
+  color: #2563eb !important;
+}
+
+[data-theme="light"] .bg-amber-500\/10,
+.light .bg-amber-500\/10 {
+  background-color: #fffbeb !important;
+}
+
+[data-theme="light"] .border-amber-500\/30,
+.light .border-amber-500\/30 {
+  border-color: #fde68a !important;
+}
+
+[data-theme="light"] .bg-amber-500\/20,
+.light .bg-amber-500\/20 {
+  background-color: #fef3c7 !important;
+  border-color: #fde68a !important;
+  color: #92400e !important;
 }
 
 /* Secondary Button */

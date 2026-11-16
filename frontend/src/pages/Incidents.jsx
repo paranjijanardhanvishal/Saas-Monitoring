@@ -371,18 +371,18 @@ export default function Incidents() {
                   <tr key={incident.id}>
                     <td><Badge tone={severityTone(incident.severity)}>{incident.severity}</Badge></td>
                     <td className="max-w-[22rem]">
-                      <p className="truncate font-semibold text-slate-100" title={incident.title}>{incident.title}</p>
-                      <p className="truncate text-[11px] text-slate-500" title={incident.reason}>{incident.reason}</p>
-                      <p className="truncate font-mono text-[10px] text-slate-600">{incident.id}</p>
+                      <p className="truncate font-semibold text-slate-900 dark:text-slate-100" title={incident.title}>{incident.title}</p>
+                      <p className="truncate text-[11px] text-slate-500 dark:text-slate-400" title={incident.reason}>{incident.reason}</p>
+                      <p className="truncate font-mono text-[10px] text-slate-400 dark:text-slate-600">{incident.id}</p>
                     </td>
                     <td>
-                      <p className="text-slate-300">{incident.user_id || '—'}</p>
-                      <p className="text-[11px] text-slate-500">{incident.saas_app || '—'}</p>
+                      <p className="text-slate-700 dark:text-slate-300">{incident.user_id || '—'}</p>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">{incident.saas_app || '—'}</p>
                     </td>
-                    <td className="font-mono text-slate-300">{formatScore(incident.risk_score, 1)}</td>
+                    <td className="font-mono text-slate-700 dark:text-slate-300">{formatScore(incident.risk_score, 1)}</td>
                     <td><Badge tone={statusTone(incident.status)}>{incident.status}</Badge></td>
-                    <td className="text-slate-400">{incident.assigned_to || <span className="text-slate-600">Unassigned</span>}</td>
-                    <td className="whitespace-nowrap text-slate-400" title={formatDateTime(incident.created_time)}>{timeAgo(incident.created_time)}</td>
+                    <td className="text-slate-600 dark:text-slate-400">{incident.assigned_to || <span className="text-slate-400 dark:text-slate-600">Unassigned</span>}</td>
+                    <td className="whitespace-nowrap text-slate-500 dark:text-slate-400" title={formatDateTime(incident.created_time)}>{timeAgo(incident.created_time)}</td>
                     <td className="text-right">
                       <button type="button" className={btnSecondary} onClick={() => openIncident(incident)}>Open</button>
                     </td>

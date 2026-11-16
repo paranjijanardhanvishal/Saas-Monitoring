@@ -203,7 +203,7 @@ export default function LiveActivity() {
                     <td className="font-mono text-[11px] text-slate-300">{event.event_type}</td>
                     <td><Badge tone="neutral">{event.action}</Badge></td>
                     <td><Badge tone={event.source === 'endpoint_agent' ? 'cyan' : event.source === 'saas_proxy' ? 'purple' : 'neutral'}>{event.source}</Badge></td>
-                    <td className="text-slate-300">{event.user_id || <span className="text-amber-400">unverified</span>}</td>
+                    <td className="text-slate-600 dark:text-slate-300">{event.user_id || <span className="font-medium text-amber-700 dark:text-amber-400">unverified</span>}</td>
                     <td className="text-slate-400">{event.saas_app || '—'}</td>
                     <td className="max-w-[16rem] truncate text-slate-400" title={event.resource_name || event.resource_id || ''}>{event.resource_name || event.resource_id || '—'}</td>
                     <td className="max-w-[10rem] truncate text-[11px] text-slate-500" title={event.device_id || ''}>{event.device_info?.hostname || event.device_id || '—'}</td>
@@ -231,7 +231,7 @@ export default function LiveActivity() {
               <KeyValue label="Action">{context.event?.action}</KeyValue>
               <KeyValue label="Source">{context.event?.source}</KeyValue>
               <KeyValue label="Timestamp">{formatDateTime(context.event?.timestamp)}</KeyValue>
-              <KeyValue label="User">{context.event?.user_id || <span className="text-amber-300">Unverified proxy identity</span>}</KeyValue>
+              <KeyValue label="User">{context.event?.user_id || <span className="font-medium text-amber-700 dark:text-amber-300">Unverified proxy identity</span>}</KeyValue>
               <KeyValue label="Device">{context.event?.device_info?.hostname || context.event?.device_id || '—'}</KeyValue>
               <KeyValue label="Application">{context.event?.saas_app || '—'}</KeyValue>
               <KeyValue label="Resource">{context.event?.resource_name || context.event?.resource_id || '—'}</KeyValue>

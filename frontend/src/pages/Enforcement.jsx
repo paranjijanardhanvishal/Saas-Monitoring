@@ -523,7 +523,7 @@ export default function Enforcement() {
               </select>
               <p className="mt-2 text-[11px] leading-relaxed text-slate-400">{selectedMeta.description}</p>
               {recommendation.requires_confirmation && actionDraft === recommendation.recommended_action ? (
-                <p className="mt-2 flex items-center gap-1.5 text-[11px] text-amber-300">
+                <p className="mt-2 flex items-center gap-1.5 text-[11px] font-medium text-amber-700 dark:text-amber-300">
                   <ShieldAlert size={13} /> The policy recommendation is an active response.
                 </p>
               ) : null}

@@ -326,10 +326,10 @@ export default function Alerts() {
                   <tr key={alert.id}>
                     <td><Badge tone={severityTone(alert.severity)}>{alert.severity}</Badge></td>
                     <td className="max-w-[20rem]">
-                      <p className="truncate font-semibold text-slate-100" title={alert.title}>{alert.title}</p>
-                      <p className="truncate text-[11px] text-slate-500" title={alert.reason}>{alert.reason}</p>
+                      <p className="truncate font-semibold text-slate-900 dark:text-slate-100" title={alert.title}>{alert.title}</p>
+                      <p className="truncate text-[11px] text-slate-500 dark:text-slate-400" title={alert.reason}>{alert.reason}</p>
                     </td>
-                    <td className="text-slate-300">{alert.user_id || <span className="text-amber-400">unverified</span>}</td>
+                    <td className="text-slate-600 dark:text-slate-300">{alert.user_id || <span className="font-medium text-amber-700 dark:text-amber-400">unverified</span>}</td>
                     <td className="text-slate-400">{alert.saas_app || '—'}</td>
                     <td className="font-mono text-slate-300">{formatScore(alert.risk_score, 1)}</td>
                     <td><Badge tone={statusTone(alert.status)}>{alert.status}</Badge></td>

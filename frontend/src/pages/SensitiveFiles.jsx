@@ -287,15 +287,15 @@ export default function SensitiveFiles() {
                   {visibleFiles.map((file) => (
                     <tr key={file.file_id}>
                       <td>
-                        <p className="font-medium text-slate-200">{file.name}</p>
-                        <p className="truncate text-[10px] text-slate-500">{file.file_id}</p>
+                        <p className="font-semibold text-slate-900 dark:text-slate-100">{file.name}</p>
+                        <p className="truncate text-[10px] text-slate-500 dark:text-slate-400">{file.file_id}</p>
                       </td>
-                      <td className="text-slate-400">{file.owner_email || '—'}</td>
-                      <td className="text-slate-400">{file.mime_type || '—'}</td>
+                      <td className="text-slate-600 dark:text-slate-400">{file.owner_email || '—'}</td>
+                      <td className="text-slate-600 dark:text-slate-400">{file.mime_type || '—'}</td>
                       <td><Badge tone="purple">{file.source || 'unknown'}</Badge></td>
-                      <td className="whitespace-nowrap text-slate-400">{file.modified_time ? formatDateTime(file.modified_time) : '—'}</td>
-                      <td className="text-slate-400">{file.size == null ? '—' : `${(file.size / 1024).toFixed(1)} KB`}</td>
-                      <td className="whitespace-nowrap text-slate-500">{file.retrieved_timestamp ? timeAgo(file.retrieved_timestamp) : '—'}</td>
+                      <td className="whitespace-nowrap text-slate-600 dark:text-slate-400">{file.modified_time ? formatDateTime(file.modified_time) : '—'}</td>
+                      <td className="text-slate-600 dark:text-slate-400">{file.size == null ? '—' : `${(file.size / 1024).toFixed(1)} KB`}</td>
+                      <td className="whitespace-nowrap text-slate-500 dark:text-slate-400">{file.retrieved_timestamp ? timeAgo(file.retrieved_timestamp) : '—'}</td>
                       <td className="text-right">
                         <div className="flex justify-end gap-2"><button type="button" className={btnSecondary} onClick={() => openFile(file)}>Open</button>{['ADMIN', 'USER'].includes(user?.role) ? <button type="button" className={btnSecondary} onClick={async () => { setDownloadError(''); try { await downloadDriveFile(file.file_id); } catch (err) { setDownloadError(errorMessage(err, 'Download failed.')); } }} title="Download"><Download size={14} /></button> : null}</div>
                       </td>
@@ -350,7 +350,7 @@ export default function SensitiveFiles() {
                       <td>
                         <div className="flex items-center gap-2">
                           <span className="font-mono text-xs text-slate-200">{formatScore(finding.sensitivity_score, 0)}</span>
-                          <div className="h-1.5 w-16 overflow-hidden rounded-full bg-slate-800">
+                          <div className="h-1.5 w-16 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800">
                             <div className={`h-full ${finding.sensitivity_score >= 60 ? 'bg-red-500' : finding.sensitivity_score >= 20 ? 'bg-amber-500' : 'bg-emerald-500'}`} style={{ width: `${Math.min(100, Number(finding.sensitivity_score) || 0)}%` }} />
                           </div>
                         </div>

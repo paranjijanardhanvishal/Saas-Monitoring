@@ -81,7 +81,7 @@ export default function ResetPassword() {
 
         {!token ? (
           <div className="space-y-4 text-center">
-            <p className="text-xs text-amber-300">
+            <p className="text-xs font-medium text-amber-700 dark:text-amber-300">
               No reset token found in the URL. Please use the link sent to your email or request a new reset.
             </p>
             <Link to="/login" className="inline-block text-xs font-semibold text-blue-400 hover:text-blue-300">

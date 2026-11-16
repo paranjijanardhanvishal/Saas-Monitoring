@@ -1,12 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Check,
+  Clock,
   Copy,
   KeyRound,
   Laptop,
   Loader2,
   Plus,
   RefreshCw,
+  ShieldCheck,
   ShieldOff,
   UserPlus,
   Users as UsersIcon,
@@ -49,6 +51,7 @@ import {
   SearchInput,
   selectClass,
   severityTone,
+  StatCard,
   statusTone,
   timeAgo,
 } from '../components/ui';
@@ -377,7 +380,7 @@ export default function Users() {
           subtitle={`${users.length} account${users.length === 1 ? '' : 's'} on this page`}
           bodyClassName="p-0"
         >
-          <div className="flex flex-col gap-2 border-b border-slate-800 p-4 lg:flex-row lg:items-center">
+          <div className="flex flex-col gap-2.5 border-b border-slate-200 p-4 lg:flex-row lg:items-center dark:border-slate-800">
             <SearchInput
               value={query}
               onChange={setQuery}
@@ -434,10 +437,10 @@ export default function Users() {
                 <tbody>
                   {users.map((item) => (
                     <tr key={item.user_id}>
-                      <td className="font-medium text-slate-200">
+                      <td className="font-semibold text-slate-900 dark:text-slate-100">
                         {item.display_name || item.user_id}
                       </td>
-                      <td className="font-mono text-xs text-slate-400">
+                      <td className="font-mono text-xs text-slate-600 dark:text-slate-400">
                         {item.email || '—'}
                       </td>
                       <td>
@@ -518,22 +521,43 @@ export default function Users() {
 
       {error ? <ErrorState message={error} onRetry={() => load()} /> : null}
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        {[
-          { label: 'Users in view', value: users.length, tone: 'blue' },
-          { label: 'Consented', value: consentCounts.ALLOWED, tone: 'green' },
-          { label: 'Awaiting consent', value: consentCounts.NOT_ASKED, tone: 'amber' },
-          { label: 'Declined / revoked', value: consentCounts.DECLINED + consentCounts.REVOKED, tone: 'red' },
-        ].map((item) => (
-          <div key={item.label} className="rounded-xl border border-slate-800 bg-[#111827]/80 p-4">
-            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{item.label}</p>
-            <p className="mt-1 text-2xl font-bold tabular-nums text-white">{formatNumber(item.value)}</p>
-          </div>
-        ))}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard
+          label="Users in view"
+          value={formatNumber(users.length)}
+          hint="Filtered directory subset"
+          icon={UsersIcon}
+          tone="blue"
+          loading={loading}
+        />
+        <StatCard
+          label="Consented"
+          value={formatNumber(consentCounts.ALLOWED)}
+          hint="Monitoring active"
+          icon={ShieldCheck}
+          tone="green"
+          loading={loading}
+        />
+        <StatCard
+          label="Awaiting consent"
+          value={formatNumber(consentCounts.NOT_ASKED)}
+          hint="Pending user authorization"
+          icon={Clock}
+          tone="amber"
+          loading={loading}
+        />
+        <StatCard
+          label="Declined / revoked"
+          value={formatNumber(consentCounts.DECLINED + consentCounts.REVOKED)}
+          hint="Monitoring paused"
+          icon={ShieldOff}
+          tone="red"
+          loading={loading}
+        />
       </div>
 
       <Panel title="Directory" subtitle="Consent is enforced by the backend, not just hidden in the UI." bodyClassName="p-0">
-        <div className="flex flex-col gap-2 border-b border-slate-800 p-4 lg:flex-row lg:items-center">
+        <div className="flex flex-col gap-2.5 border-b border-slate-200 p-4 lg:flex-row lg:items-center dark:border-slate-800">
           <SearchInput
             value={query}
             onChange={setQuery}
@@ -615,8 +639,8 @@ export default function Users() {
                 {users.map((item) => (
                   <tr key={item.user_id}>
                     <td>
-                      <p className="font-semibold text-slate-100">{item.display_name || item.user_id}</p>
-                      <p className="text-[11px] text-slate-500">
+                      <p className="font-semibold text-slate-900 dark:text-slate-100">{item.display_name || item.user_id}</p>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
                         {item.user_id}
                         {item.email ? ` · ${item.email}` : ''}
                       </p>
@@ -642,12 +666,12 @@ export default function Users() {
                       </Badge>
                     </td>
                     <td>
-                      {item.is_active ? <span className="text-emerald-400">Yes</span> : <span className="text-red-400">No</span>}
+                      {item.is_active ? <Badge tone="green">Active</Badge> : <Badge tone="red">Inactive</Badge>}
                     </td>
-                    <td className="whitespace-nowrap text-slate-400">
+                    <td className="whitespace-nowrap text-slate-600 dark:text-slate-400">
                       {item.last_login_at ? timeAgo(item.last_login_at) : 'Never'}
                     </td>
-                    <td className="whitespace-nowrap text-slate-500">
+                    <td className="whitespace-nowrap text-slate-500 dark:text-slate-400">
                       {formatDateTime(item.created_at)}
                     </td>
                     {canViewDetails ? (
@@ -740,7 +764,7 @@ export default function Users() {
               </section>
 
               {isAdmin ? (
-                <section className="rounded-lg border border-slate-800 bg-slate-900/40 p-4">
+                <section className="rounded-xl border border-slate-200 bg-slate-50/60 p-4 dark:border-slate-800 dark:bg-slate-900/40">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
                     <div className="flex-1">
                       <label className={labelClass} htmlFor="access-role">System access role</label>
@@ -770,17 +794,17 @@ export default function Users() {
                     ) : null}
                   </div>
                   {selected.user_id === 'admin' ? (
-                    <p className="mt-2 text-[11px] text-amber-400/80">Primary administrator access role is protected.</p>
+                    <p className="mt-2 text-[11px] font-medium text-amber-700 dark:text-amber-400">Primary administrator access role is protected.</p>
                   ) : (
-                    <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+                    <p className="mt-2 text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">
                       Controls platform authorization and management capabilities.
                     </p>
                   )}
-                  {accessRoleNotice ? <p className="mt-2 text-xs text-emerald-300">{accessRoleNotice}</p> : null}
+                  {accessRoleNotice ? <p className="mt-2 text-xs text-emerald-600 dark:text-emerald-300">{accessRoleNotice}</p> : null}
                 </section>
               ) : null}
 
-              <section className="rounded-lg border border-slate-800 bg-slate-900/40 p-4">
+              <section className="rounded-xl border border-slate-200 bg-slate-50/60 p-4 dark:border-slate-800 dark:bg-slate-900/40">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
                   <div className="flex-1">
                     <label className={labelClass} htmlFor="business-role">Business role</label>
@@ -809,18 +833,18 @@ export default function Users() {
                     </button>
                   ) : null}
                 </div>
-                <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+                <p className="mt-2 text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">
                   Role analytics use department-category signals from attributed endpoint events. A role change applies to new events.
                 </p>
-                {businessRoleNotice ? <p className="mt-2 text-xs text-emerald-300">{businessRoleNotice}</p> : null}
+                {businessRoleNotice ? <p className="mt-2 text-xs text-emerald-600 dark:text-emerald-300">{businessRoleNotice}</p> : null}
               </section>
 
               {isAdmin ? (
-                <section className="rounded-lg border border-slate-800 bg-slate-900/40 p-4">
+                <section className="rounded-xl border border-slate-200 bg-slate-50/60 p-4 dark:border-slate-800 dark:bg-slate-900/40">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
-                      <h3 className="text-sm font-bold text-slate-100">Endpoint enrollment</h3>
-                      <p className="mt-0.5 text-[11px] text-slate-500">
+                      <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">Endpoint enrollment</h3>
+                      <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
                         Issue a one-time token, then run the agent enrollment command on the device.
                       </p>
                     </div>
@@ -835,11 +859,11 @@ export default function Users() {
                     </button>
                   </div>
                   {!canEnroll ? (
-                    <p className="mt-2 text-[11px] leading-relaxed text-amber-300/90">
+                    <p className="mt-2 text-[11px] leading-relaxed font-medium text-amber-700 dark:text-amber-300">
                       The user must be active, not restricted and have ALLOWED consent before a device can be enrolled.
                     </p>
                   ) : null}
-                  {tokenError ? <p className="mt-2 text-xs text-red-300">{tokenError}</p> : null}
+                  {tokenError ? <p className="mt-2 text-xs text-red-600 dark:text-red-300">{tokenError}</p> : null}
                   {tokenData ? (
                     <div className="mt-3 rounded-lg border border-emerald-900/50 bg-emerald-950/20 p-3">
                       <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-300">
@@ -930,13 +954,13 @@ export default function Users() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <button
             type="button"
-            className="absolute inset-0 bg-black/75 backdrop-blur-sm"
+            className="absolute inset-0 bg-slate-900/60 backdrop-blur-xs"
             onClick={() => !createBusy && setCreateOpen(false)}
             aria-label="Close dialog overlay"
           />
-          <div className="relative w-full max-w-lg rounded-2xl border border-slate-800 bg-[#0d1320] p-6 shadow-2xl">
-            <h2 className="text-lg font-bold text-white">Create user account</h2>
-            <p className="mt-1 text-xs text-slate-400">
+          <div className="relative w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-800 dark:bg-[#0d1320]">
+            <h2 className="text-lg font-bold text-slate-900 dark:text-white">Create user account</h2>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
               Provision an account directly. Initial consent state is NOT_ASKED.
             </p>
 
