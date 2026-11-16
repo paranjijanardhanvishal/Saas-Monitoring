@@ -7,15 +7,18 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 
 from app.core.dependencies import get_current_active_user
 from app.database.mongodb import get_database
+from app.metadata.vector import vector_service
 from app.models.file import FileModel
 from app.models.user import UserModel
 from app.models.event import ActionEnum, EventModel
 from app.services.google_drive import drive_service
 from app.services.monitoring import log_event, persist_files
 from app.services.audit import record_audit
+from app.services.offline_analysis import get_offline_analysis_summary, run_offline_analysis
 
 logger = logging.getLogger(__name__)
 
@@ -109,6 +112,51 @@ async def sync_drive_files(
                            reason="Provider synchronization failed",
                            client_ip=request.client.host if request.client else None)
         raise HTTPException(status_code=502, detail="Google Drive synchronization failed") from exc
+
+
+class OfflineAnalysisRequest(BaseModel):
+    file_ids: Optional[List[str]] = None
+    force: bool = False
+
+
+@router.post("/files/analyze-offline")
+async def trigger_offline_analysis(
+    payload: Optional[OfflineAnalysisRequest] = None,
+    current_user: UserModel = Depends(get_current_active_user),
+):
+    """Trigger offline content analysis and vector indexing for cloud files (ADMIN and USER)."""
+    if current_user.role not in ("ADMIN", "USER"):
+        raise HTTPException(status_code=403, detail="Privileges required for offline content analysis")
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database not connected")
+
+    req = payload or OfflineAnalysisRequest()
+    try:
+        summary = await run_offline_analysis(
+            user_id=current_user.user_id,
+            file_ids=req.file_ids,
+            force_reanalyze=req.force,
+        )
+        return summary
+    except Exception as exc:
+        logger.exception("Offline analysis failed to execute")
+        raise HTTPException(status_code=500, detail=f"Offline analysis failed: {exc}") from exc
+
+
+@router.get("/files/analysis-summary")
+async def get_analysis_summary(
+    current_user: UserModel = Depends(get_current_active_user),
+):
+    """Get offline content analysis and vector indexing summary statistics."""
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database not connected")
+    try:
+        return await get_offline_analysis_summary()
+    except Exception as exc:
+        logger.exception("Failed to get offline analysis summary")
+        raise HTTPException(status_code=500, detail="Could not compute analysis summary") from exc
 
 
 @router.get("/files/{file_id}/download")
@@ -232,3 +280,35 @@ async def get_file_pii_findings(
         db.pii_findings.find({"file_id": file_id}).sort("timestamp", -1).limit(limit)
     )
     return await cursor.to_list(length=limit)
+
+
+@router.get("/files/{file_id}/similar")
+async def get_similar_files(
+    file_id: str,
+    limit: int = Query(5, ge=1, le=20),
+    current_user: UserModel = Depends(get_current_active_user),
+):
+    """Search for similar cloud files based on vectorized safe metadata."""
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database not connected")
+
+    file = await db.files.find_one({"file_id": file_id})
+    if not file:
+        raise HTTPException(status_code=404, detail="File not found")
+    if file.get("available") is False or (
+        not file.get("folder_id") and current_user.role != "ADMIN"
+        and (not current_user.email or (file.get("owner_email") or "").lower() != str(current_user.email).lower())
+    ):
+        raise HTTPException(status_code=404, detail="File not found")
+
+    # Index target file if not already in vector index
+    vector_service.index_file(file_id, file)
+
+    # Also index other available files so similarity search has full context
+    cursor = db.files.find({"available": {"$ne": False}}).limit(100)
+    async for item in cursor:
+        vector_service.index_file(item["file_id"], item)
+
+    matches = vector_service.search_similar(file_id, top_k=limit)
+    return matches

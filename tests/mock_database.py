@@ -178,6 +178,27 @@ class MockCollection:
     async def create_indexes(self, *args, **kwargs):
         return ["idx_created"]
 
+    def aggregate(self, pipeline):
+        current_docs = [copy.deepcopy(d) for d in self.docs]
+        for stage in pipeline:
+            if "$match" in stage:
+                current_docs = [d for d in current_docs if _matches(d, stage["$match"])]
+            elif "$group" in stage:
+                group_spec = stage["$group"]
+                group_field = group_spec.get("_id")
+                grouped = {}
+                if isinstance(group_field, str) and group_field.startswith("$"):
+                    key_attr = group_field[1:]
+                    for d in current_docs:
+                        val = d.get(key_attr)
+                        grouped[val] = grouped.get(val, 0) + 1
+                    current_docs = [{"_id": k, "count": v} for k, v in grouped.items()]
+            elif "$sort" in stage:
+                sort_spec = stage["$sort"]
+                for sort_key, direction in sort_spec.items():
+                    current_docs.sort(key=lambda x: x.get(sort_key, 0) or 0, reverse=(direction == -1))
+        return MockCursor(current_docs)
+
 
 class MockDatabase:
     def __init__(self, name="saas_monitor_test"):

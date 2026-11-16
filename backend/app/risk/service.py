@@ -47,6 +47,25 @@ async def analyze_risk(
     if event and event.get("user_id") and event.get("user_id") != request.user_id:
         raise ValueError("Event does not belong to the specified user")
 
+    # If privacy finding was not provided directly, check whether the event
+    # operates on a cloud file that already has completed offline analysis.
+    if not privacy_finding and event and event.get("resource_id"):
+        file_doc = await db.files.find_one({"file_id": event["resource_id"]})
+        if file_doc:
+            if file_doc.get("finding_id"):
+                privacy_finding = await db.pii_findings.find_one({"finding_id": file_doc["finding_id"]})
+            elif file_doc.get("sensitivity_score") is not None:
+                privacy_finding = {
+                    "finding_id": f"file_{file_doc['file_id']}",
+                    "file_id": file_doc["file_id"],
+                    "user_id": request.user_id,
+                    "sensitivity_score": file_doc.get("sensitivity_score", 0),
+                    "category": file_doc.get("sensitivity_tier", "SAFE"),
+                    "engine": "offline_analysis",
+                    "source": "offline_cloud_analysis",
+                    "entities": file_doc.get("entities_summary", []),
+                }
+
     if endpoint_score is None and access_score is None and request.include_context_signals:
         endpoint_score, access_score = await recent_context_scores(db, request.user_id, event)
 

@@ -33,7 +33,15 @@ def _tls_options() -> dict:
 
 async def connect_to_mongo() -> None:
     if (settings.APP_ENV == "test" or os.getenv("APP_ENV") == "test") and os.getenv("TEST_USE_REAL_MONGO") != "1":
-        from tests.mock_database import MockMongoClient
+        try:
+            from tests.mock_database import MockMongoClient
+        except ModuleNotFoundError:
+            import sys
+            from pathlib import Path
+            root = Path(__file__).resolve().parents[2]
+            if str(root) not in sys.path:
+                sys.path.insert(0, str(root))
+            from tests.mock_database import MockMongoClient
         db_client.client = MockMongoClient()
         db_client.db = db_client.client[settings.MONGO_DB_NAME]
         return

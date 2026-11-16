@@ -38,6 +38,10 @@ class Settings(BaseSettings):
     PII_ENGINE: str = "auto"
     PII_MAX_TEXT_LENGTH: int = 100000
 
+    # Vector metadata database (Pinecone integration with local fallback)
+    PINECONE_API_KEY: str = ""
+    PINECONE_INDEX: str = "saas-metadata-index"
+
     # Local OCR upload limits. Tesseract and Python OCR packages are optional.
     TESSERACT_CMD: str = ""
     OCR_MAX_FILE_BYTES: int = 10485760

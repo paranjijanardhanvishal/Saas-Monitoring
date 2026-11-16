@@ -273,6 +273,10 @@ export const getOcrStatus = () => get('/privacy/ocr-status');
 export const getFiles = (params) => get('/files', params);
 export const getDriveStatus = () => get('/files/drive/status');
 export const syncDriveFiles = () => post('/files/sync', {});
+export const runOfflineAnalysis = (payload = {}) => post('/files/analyze-offline', payload);
+export const getFileAnalysisSummary = () => get('/files/analysis-summary');
+export const getSimilarFiles = (fileId, params) =>
+  get(`/files/${encodeURIComponent(fileId)}/similar`, params);
 export async function downloadDriveFile(fileId) {
   const response = await api.get(`/files/${encodeURIComponent(fileId)}/download`, { responseType: 'blob' });
   const disposition = response.headers['content-disposition'] || '';
